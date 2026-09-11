@@ -588,3 +588,15 @@ body.modal-open .main { overflow: hidden; }
 .add-need-top .input { flex: 1; min-width: 0; }
 .embed-only { display: none !important; }
 .is-embedded .embed-only { display: inline-grid !important; }
+
+/* Keep long server links, PINs, and narrow layouts usable. */
+.row > .input { min-width: 0; }
+.storage-warning { padding: 10px 16px; background: var(--surface); color: var(--danger); border-bottom: 1px solid var(--danger); font-size: .9rem; }
+.storage-warning[hidden] { display: none; }
+.storage-warning .btn { margin: 4px; }
+.connection-help { text-align: left; overflow-wrap: anywhere; }
+.pin-dots { flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .input, .select { font-size: 1rem; }
+  .nav-btn { font-size: .875rem; }
+}

@@ -2,7 +2,9 @@
 
 A shared family calendar and dashboard for **Kevin, Kate, Luke and Max** — hosted free on GitHub Pages, linked from Wix, and synced across every phone through a private Google Sheet protected by a family PIN.
 
-**Live address (after setup):** `https://CHILLYCHILLY14.github.io/family-calendar/`
+**Website:** [Open Family Hub](https://chillychilly14.github.io/family-calendar/)
+
+**Current configuration:** device-local preview (starter PIN `1234`). Cross-device sharing requires the one-time Google Sheets / Apps Script setup below.
 **Setup guide:** [SETUP.md](SETUP.md)
 
 ## Features
@@ -59,3 +61,11 @@ test/                 Local stand-in for Google, for testing sync
 ```
 
 Run locally: `npm test` then `npm run serve` → http://localhost:4173 (preview PIN 1234).
+
+## Deployment and checks
+
+Every push to `main` runs `npm test`, builds the public app with `npm run build`, and deploys through GitHub Actions. The workflow verifies the published commit and essential assets. Select **GitHub Actions** as the Pages source. No npm dependencies or paid hosting are needed.
+
+The app keeps offline caches limited to this project, saves its local state atomically, retains server-rejected changes, and warns when browser storage is unavailable. Calendar exports include skipped dates and compatible recurrence rules. Recurrence and sync regression tests run locally without contacting Google.
+
+The family server PIN belongs in the private Apps Script `FAMILY_PIN` property. The preview PIN is only a device convenience lock; it does not encrypt browser data. Changing a custom preview PIN no longer displays it on the lock screen.

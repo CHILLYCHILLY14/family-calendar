@@ -1,0 +1,79 @@
+name: Check and deploy Family Hub
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: family-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check syntax and regression tests
+        run: npm test
+      - name: Prepare public app files
+        run: npm run build
+      - name: Upload website
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+      - name: Verify the published revision and entry point
+        env:
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request
+          base = os.environ['SITE_URL'].rstrip('/') + '/'
+          expected = os.environ['EXPECTED_SHA']
+          for attempt in range(12):
+              try:
+                  with urllib.request.urlopen(base + 'version.json?revision=' + expected, timeout=20) as response:
+                      version = json.load(response)
+                  assert version['commit'] == expected, 'Previous revision is still cached'
+                  with urllib.request.urlopen(base + '?revision=' + expected, timeout=20) as response:
+                      html = response.read().decode()
+                  assert 'app.js?v=2' in html and 'Family Hub' in html, 'App entry point is missing'
+                  for asset in ['app.js', 'store.js', 'lib.js', 'styles.css', 'sw.js', 'manifest.webmanifest', 'assets/icons/icon-192.png']:
+                      with urllib.request.urlopen(base + asset, timeout=20) as response:
+                          assert response.status == 200 and response.read(50), 'Missing asset: ' + asset
+                  print('Verified live Family Hub revision:', expected)
+                  print('Live URL:', base)
+                  break
+              except Exception as error:
+                  if attempt == 11:
+                      raise
+                  print('Waiting for Pages to serve this revision:', error)
+                  time.sleep(10)
+          PY

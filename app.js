@@ -131,7 +131,7 @@ async function loadWeather(force = false) {
     j.hourly.time.forEach((t, i) => hours[t.slice(0, 13)] = { pop: j.hourly.precipitation_probability[i], code: j.hourly.weather_code[i], t: Math.round(j.hourly.temperature_2m[i]) });
     weather = { key, at: Date.now(), now: { t: Math.round(j.current.temperature_2m), feels: Math.round(j.current.apparent_temperature), code: j.current.weather_code }, days, hours };
     ls.set('fh.weather', weather);
-    renderPage();
+    softRender();
   } catch { /* offline — keep cached */ }
 }
 function weatherFor(date, time) {
@@ -166,7 +166,9 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', (
 const PAGES = ['home', 'calendar', 'needs', 'meals', 'person', 'settings'];
 function route() {
   const [page, arg] = (location.hash.replace(/^#\/?/, '') || 'home').split('/');
-  return { page: PAGES.includes(page) ? page : 'home', arg: arg ? decodeURIComponent(arg) : '' };
+  let decoded = '';
+  try { decoded = arg ? decodeURIComponent(arg) : ''; } catch { /* malformed bookmark */ }
+  return { page: PAGES.includes(page) ? page : 'home', arg: decoded };
 }
 function go(page, arg) { const h = '#' + page + (arg ? '/' + encodeURIComponent(arg) : ''); if (location.hash === h) renderPage(true); else location.hash = h; }
 window.addEventListener('hashchange', () => { closeModal(); renderShellState(); renderPage(true); });
@@ -186,20 +188,29 @@ function toast(msg, undo) {
 }
 
 let modalCleanup = null;
+let modalTrigger;
 function openModal(html, { wide = false, onClose } = {}) {
+  const trigger = modalRoot.contains(document.activeElement) ? modalTrigger : document.activeElement;
   closeModal(true);
-  modalRoot.innerHTML = `<div class="overlay" data-act="overlay"><div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div></div>`;
+  modalTrigger = trigger;
+  modalRoot.innerHTML = `<div class="overlay" data-act="overlay"><div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" tabindex="-1">${html}</div></div>`;
+  const heading = $('.modal h2');
+  if (heading) { heading.id = 'dialog-title'; $('.modal').setAttribute('aria-labelledby', heading.id); }
+  else $('.modal').setAttribute('aria-label', 'Family Hub dialog');
+  app.inert = true;
   document.body.classList.add('modal-open');
   modalCleanup = onClose || null;
-  requestAnimationFrame(() => { const f = $('.modal [autofocus]') || $('.modal input, .modal button'); if (f && isWide()) f.focus(); });
+  requestAnimationFrame(() => { const f = isWide() ? ($('.modal [autofocus]') || $('.modal input, .modal button') || $('.modal')) : $('.modal'); f?.focus({ preventScroll: true }); });
 }
 function closeModal(silent) {
   if (!modalRoot.innerHTML) return;
   modalRoot.innerHTML = '';
+  app.inert = false;
   document.body.classList.remove('modal-open');
   const fn = modalCleanup; modalCleanup = null;
   if (fn && !silent) fn();
   if (pendingRender) { pendingRender = false; renderPage(); }
+  if (modalTrigger?.isConnected) modalTrigger.focus({ preventScroll: true });
 }
 function confirmBox(title, text, buttons) {
   return new Promise(resolve => {
@@ -235,7 +246,8 @@ function renderLock() {
           <button type="submit" class="go" aria-label="Unlock">➜</button>
         </div>
       </form>
-      ${store.isShared ? '<p class="tiny muted">🔒 Shared family calendar · syncs across devices</p>' : `<p class="tiny muted preview-note">Preview mode · data stays on this device · PIN <b>${esc(ls.get('fh.previewPin', CONFIG.PREVIEW_PIN || '1234'))}</b></p>`}
+      ${store.isShared ? '<p class="tiny muted">🔒 Shared family calendar · syncs across devices</p>' : `<p class="tiny muted preview-note">Preview mode · data stays on this device${ls.get('fh.previewPin', '') ? '' : ` · starter PIN <b>${esc(CONFIG.PREVIEW_PIN || '1234')}</b>`}</p>`}
+      ${store.isShared ? `<details class="adv connection-help"><summary>Connection help</summary><p class="tiny muted">If the server link is wrong, correct it here. Your saved data stays on this device.</p><form data-submit="set-api"><label class="field"><span class="label">Family server link</span><input class="input" name="url" type="url" value="${esc(store.apiUrl)}" required/></label><button class="btn" type="submit">Save link</button></form></details>` : ''}
     </div>
   </main>`;
   const inp = $('#pin-input');
@@ -248,7 +260,7 @@ function updatePinDots() {
   const inp = $('#pin-input'); if (inp && inp.value !== pinEntry) inp.value = pinEntry;
 }
 async function doUnlock() {
-  if (!pinEntry) return;
+  if (!pinEntry || $('.keypad .go')?.disabled) return;
   const btn = $('.keypad .go'); if (btn) btn.disabled = true;
   pinMsg = 'Checking…'; $('.pin-msg').textContent = pinMsg;
   const res = await store.unlock(pinEntry);
@@ -303,6 +315,7 @@ function renderShell() {
           <a class="icon-btn mobile-only" href="#settings" aria-label="Settings">⚙️</a>
         </div>
       </header>
+      <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
       <main id="main" class="main" tabindex="-1"></main>
     </div>
     <nav class="bottom-nav" aria-label="Main">
@@ -315,7 +328,7 @@ function renderShell() {
 }
 function renderShellState() {
   const r = route();
-  $$('[data-page]').forEach(a => a.classList.toggle('active', a.dataset.page === r.page || (r.page === 'person' && a.dataset.page === 'home')));
+  $$('[data-page]').forEach(a => { const active = a.dataset.page === r.page || (r.page === 'person' && a.dataset.page === 'home'); a.classList.toggle('active', active); if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   const name = settings().familyName;
   ['#brand-name', '#brand-name-m'].forEach(s => { const el = $(s); if (el) el.textContent = name; });
   const sp = $('#side-people');
@@ -324,11 +337,12 @@ function renderShellState() {
 }
 function syncLabel() {
   const s = store.status;
+  if (store.storageError) return { cls: 'err', text: 'Storage unavailable' };
   if (!store.isShared) return { cls: 'local', text: 'Preview · this device' };
-  if (s === 'syncing' || store.pending.length) return { cls: 'busy', text: 'Saving…' };
   if (s === 'offline') return { cls: 'warn', text: 'Offline' };
   if (s === 'error') return { cls: 'err', text: 'Sync issue' };
   if (s === 'auth') return { cls: 'err', text: 'Locked' };
+  if (s === 'syncing' || store.pending.length) return { cls: 'busy', text: 'Saving…' };
   return { cls: 'ok', text: store.lastSync ? 'Synced ' + ago(store.lastSync) : 'Connected' };
 }
 function ago(t) {
@@ -336,6 +350,11 @@ function ago(t) {
   if (s < 45) return 'now'; if (s < 3600) return Math.round(s / 60) + 'm ago'; if (s < 86400) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago';
 }
 function renderSync() {
+  const warning = $('#storage-warning');
+  if (warning) {
+    warning.hidden = !store.storageError;
+    warning.innerHTML = store.storageError ? 'This browser could not save your changes. Keep this tab open and <button class="btn sm" data-act="export">Export backup</button> before refreshing.' : '';
+  }
   const l = syncLabel();
   const html = `<button class="sync-pill ${l.cls}" data-act="sync-now" title="${esc(store.statusMessage || 'Tap to sync now')}"><i></i>${esc(l.text)}</button>`;
   const a = $('#sync-pill'); if (a) a.innerHTML = html;
@@ -771,7 +790,7 @@ function renderEditor() {
   <form class="editor" data-submit="save-event" novalidate>
     <div class="modal-head"><h2>${isNew ? 'New event' : 'Edit event'}</h2><button type="button" class="icon-btn" data-act="close" aria-label="Close">✕</button></div>
     <div class="modal-body">
-      <input class="input title-input" name="title" placeholder="${esc(L.catById(ev.category).name)} — what's happening?" value="${esc(ev.title)}" data-input="ed-field" data-field="title" ${isNew ? 'autofocus' : ''} maxlength="120"/>
+      <input class="input title-input" name="title" aria-label="Event title" placeholder="${esc(L.catById(ev.category).name)} — what's happening?" value="${esc(ev.title)}" data-input="ed-field" data-field="title" ${isNew ? 'autofocus' : ''} maxlength="120"/>
 
       <div class="field"><span class="label">Activity</span>
         <div class="cat-grid">${L.CATEGORIES.map(c => `<button type="button" class="cat-btn ${ev.category === c.id ? 'on' : ''}" data-act="ed-cat" data-id="${c.id}" style="--cc:${c.color}"><span>${c.icon}</span><small>${esc(c.name)}</small></button>`).join('')}</div>
@@ -790,7 +809,7 @@ function renderEditor() {
         <label class="field"><span class="label">Date</span><input class="input" type="date" value="${draft.onlyThis ? (draft.onlyDate || occDate) : ev.date}" data-change="ed-date" required/></label>
         <label class="field"><span class="label">&nbsp;</span><span class="toggle"><input type="checkbox" data-change="ed-allday" ${ev.allDay ? 'checked' : ''}/><span></span>All day</span></label>
       </div>
-      ${ev.allDay ? `<label class="field"><span class="label">Ends (for multi-day, e.g. tournaments/trips)</span><input class="input" type="date" value="${esc(ev.endDate || '')}" min="${ev.date}" data-change="ed-field" data-field="endDate"/></label>`
+      ${ev.allDay ? `<label class="field"><span class="label">Ends (for multi-day, e.g. tournaments/trips)</span><input class="input" type="date" value="${esc((draft.onlyThis ? draft.onlyEndDate : ev.endDate) || '')}" min="${draft.onlyThis ? draft.onlyDate : ev.date}" data-change="ed-field" data-field="endDate"/></label>`
         : `<div class="grid2"><label class="field"><span class="label">Starts</span><input class="input" type="time" value="${esc(ev.start)}" data-change="ed-start" step="300"/></label><label class="field"><span class="label">Ends</span><input class="input" type="time" value="${esc(ev.end)}" data-change="ed-field" data-field="end" step="300"/></label></div>`}
       ${conf.length ? `<div class="warn-box">⚠️ Heads up: ${conf.map(o => `${esc(evPeople(o.ev).map(p => p.name).join(' & '))} ${evPeople(o.ev).length > 1 ? 'have' : 'has'} <b>${esc(o.ev.title)}</b> ${L.fmtRange(o.ev)}`).join('; ')}</div>` : ''}
 
@@ -830,15 +849,20 @@ function refreshEditor() {
   if (focusSel) $(focusSel)?.focus();
 }
 function saveEvent() {
-  const ev = draft.ev;
+  const ev = structuredClone(draft.ev);
+  const effectiveDate = draft.onlyThis ? draft.onlyDate || draft.occDate : ev.date;
+  if (draft.onlyThis) ev.endDate = draft.onlyEndDate || '';
   ev.title = (ev.title || '').trim() || L.catById(ev.category).name;
-  if (!ev.date) return toast('Pick a date');
-  if (!ev.allDay && ev.start && ev.end && ev.end <= ev.start) ev.end = L.fromMin(Math.min(1439, L.toMin(ev.start) + 60));
-  if (ev.allDay) { ev.start = ''; ev.end = ''; if (ev.endDate && ev.endDate < ev.date) ev.endDate = ''; } else ev.endDate = '';
+  if (!effectiveDate) return toast('Pick a date');
+  if (!ev.allDay && (!ev.start || !ev.end || ev.end <= ev.start)) return toast('Choose an end time after the start time');
+  if (ev.endDate && ev.endDate < effectiveDate) return toast('The end date must be on or after the start date');
+  if (!draft.onlyThis && ev.repeat?.freq !== 'none' && ev.repeat?.until && ev.repeat.until < ev.date) return toast('The repeat end date must be on or after the event date');
+  if (ev.allDay) { ev.start = ''; ev.end = ''; } else ev.endDate = '';
   if (ev.repeat?.freq === 'weekly' && (!ev.repeat.days || !ev.repeat.days.length)) ev.repeat.days = [L.dow(ev.date)];
   const who = me()?.name || '';
   if (draft.onlyThis && !draft.isNew) {
     const series = store.get(ev.id);
+    if (!series) return toast('This series was removed on another device. Close this event and create a new one.');
     const occ = draft.occDate;
     store.put('event', { ...series, exdates: [...new Set([...(series.exdates || []), occ])] });
     const single = { ...ev, id: '', date: draft.onlyDate || occ, repeat: { freq: 'none' }, exdates: [], createdBy: who };
@@ -869,26 +893,10 @@ async function deleteEvent() {
   renderPage();
 }
 function icsFor(ev) {
-  const d = s => s.replace(/-/g, '');
-  const t = s => s.replace(':', '') + '00';
-  const escI = s => String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/[,;]/g, m => '\\' + m);
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Family Hub//EN', 'BEGIN:VEVENT', `UID:${ev.id}@family-hub`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`];
-  if (ev.allDay || !ev.start) { lines.push(`DTSTART;VALUE=DATE:${d(ev.date)}`, `DTEND;VALUE=DATE:${d(L.addDays(ev.endDate || ev.date, 1))}`); }
-  else { lines.push(`DTSTART:${d(ev.date)}T${t(ev.start)}`, `DTEND:${d(ev.date)}T${t(ev.end || L.fromMin(L.toMin(ev.start) + 60))}`); }
-  const r = ev.repeat;
-  if (r && r.freq !== 'none') {
-    let rule = `RRULE:FREQ=${r.freq.toUpperCase()};INTERVAL=${r.interval || 1}`;
-    if (r.freq === 'weekly' && r.days?.length) rule += ';BYDAY=' + r.days.map(i => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][i]).join(',');
-    if (r.until) rule += `;UNTIL=${d(r.until)}T235959`;
-    lines.push(rule);
-  }
-  lines.push(`SUMMARY:${escI(L.catById(ev.category).icon + ' ' + ev.title)}`);
-  if (ev.location) lines.push(`LOCATION:${escI(ev.location)}`);
-  const desc = [evPeople(ev).map(p => p.name).join(', '), ev.bring ? 'Bring: ' + ev.bring : '', ev.notes].filter(Boolean).join('\n');
-  if (desc) lines.push(`DESCRIPTION:${escI(desc)}`);
-  lines.push('END:VEVENT', 'END:VCALENDAR');
-  return lines.join('\r\n');
+  const description = [evPeople(ev).map(p => p.name).join(', '), ev.bring ? 'Bring: ' + ev.bring : '', ev.notes].filter(Boolean).join('\n');
+  return L.calendarFile(ev, description);
 }
+
 function downloadFile(name, text, type) {
   const blob = new Blob([text], { type });
   const file = typeof File === 'function' ? new File([blob], name, { type }) : null;
@@ -1139,14 +1147,14 @@ function viewSettings() {
     <div class="sec-head"><h2>🔄 Sharing & sync</h2></div>
     <p><span class="sync-pill ${l.cls}"><i></i>${esc(l.text)}</span> ${store.statusMessage ? `<span class="muted tiny">${esc(store.statusMessage)}</span>` : ''}</p>
     ${store.isShared ? `<p class="muted">This calendar is shared. Anyone with the website link and the family PIN sees the same events, lists and notes. Changes from other phones appear within about ${CONFIG.SYNC_SECONDS || 25} seconds.</p>`
-      : `<div class="note-box">🧪 <b>Preview mode.</b> Everything is saved on this device only. To share across phones, follow <b>SETUP.md</b> (about 10 minutes, free) and paste your Google Apps Script link into <code>config.js</code> — or below to test on this device.</div>`}
+      : `<div class="note-box">🧪 <b>Preview mode.</b> Everything is saved on this device only. To share across phones, follow <a href="https://github.com/CHILLYCHILLY14/family-calendar/blob/main/SETUP.md#part-2--turn-on-sharing-between-phones-google-sheet" target="_blank" rel="noopener">the sharing setup guide</a> and paste your Google Apps Script link into <code>config.js</code> — or below to test on this device.</div>`}
     <div class="row wrap">
       <button class="btn" data-act="sync-now">Sync now</button>
       <button class="btn" data-act="lock">🔒 Lock this device</button>
       ${!store.isShared ? `<button class="btn" data-act="change-preview-pin">Change preview PIN</button>` : ''}
     </div>
     <details class="adv"><summary>Advanced: server link for this device</summary>
-      <form class="row" data-submit="set-api"><input class="input" name="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(ls.get('fh.apiUrl.v1', ''))}"/><button class="btn">Save</button></form>
+      <form class="row" data-submit="set-api"><input class="input" name="url" aria-label="Family server link" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(ls.get('fh.apiUrl.v1', ''))}"/><button class="btn">Save</button></form>
       <p class="tiny muted">Normally set once in config.js for everyone. This override only affects this browser.</p>
     </details>
   </section>
@@ -1294,14 +1302,14 @@ const actions = {
 const changes = {
   'filter-cat': el => { prefs.cat = el.value; savePrefs(); renderPage(); },
   split: el => { prefs.split = el.checked; savePrefs(); renderPage(); },
-  'ed-field': el => { draft.ev[el.dataset.field] = el.value; if (['dropoff', 'pickup'].includes(el.dataset.field)) return; if (el.dataset.field === 'end') refreshEditor(); },
-  'ed-date': el => { if (!el.value) return; if (draft.onlyThis) { draft.onlyDate = el.value; } else { const ev = draft.ev; if (ev.endDate) ev.endDate = L.addDays(el.value, L.diffDays(ev.date, ev.endDate)); ev.date = el.value; if (ev.repeat?.freq === 'weekly' && ev.repeat.days?.length === 1) ev.repeat.days = [L.dow(el.value)]; } refreshEditor(); },
+  'ed-field': el => { if (el.dataset.field === 'endDate' && draft.onlyThis) { draft.onlyEndDate = el.value; return; } draft.ev[el.dataset.field] = el.value; if (['dropoff', 'pickup'].includes(el.dataset.field)) return; if (el.dataset.field === 'end') refreshEditor(); },
+  'ed-date': el => { if (!el.value) return; if (draft.onlyThis) { if (draft.onlyEndDate) draft.onlyEndDate = L.addDays(el.value, L.diffDays(draft.onlyDate, draft.onlyEndDate)); draft.onlyDate = el.value; } else { const ev = draft.ev; if (ev.endDate) ev.endDate = L.addDays(el.value, L.diffDays(ev.date, ev.endDate)); ev.date = el.value; if (ev.repeat?.freq === 'weekly' && ev.repeat.days?.length === 1) ev.repeat.days = [L.dow(el.value)]; } refreshEditor(); },
   'ed-start': el => { const ev = draft.ev; const dur = (L.toMin(ev.end) ?? L.toMin(ev.start) + 60) - (L.toMin(ev.start) ?? 0); ev.start = el.value; if (el.value) ev.end = L.fromMin(Math.min(1439, L.toMin(el.value) + (dur > 0 ? dur : 60))); refreshEditor(); },
   'ed-allday': el => { draft.ev.allDay = el.checked; if (!el.checked && !draft.ev.start) { draft.ev.start = '18:00'; draft.ev.end = '19:00'; } refreshEditor(); },
   'ed-freq': el => { draft.ev.repeat = { ...(draft.ev.repeat || {}), freq: el.value, interval: draft.ev.repeat?.interval || 1, days: el.value === 'weekly' ? [L.dow(draft.ev.date)] : [] }; refreshEditor(); },
   'ed-interval': el => { draft.ev.repeat.interval = Number(el.value); },
   'ed-until': el => { draft.ev.repeat.until = el.value; },
-  'ed-only': el => { draft.onlyThis = el.checked; draft.onlyDate = draft.occDate; refreshEditor(); },
+  'ed-only': el => { draft.onlyThis = el.checked; draft.onlyDate = draft.occDate; draft.onlyEndDate = draft.ev.endDate ? L.addDays(draft.occDate, L.diffDays(draft.ev.date, draft.ev.endDate)) : ''; refreshEditor(); },
   'ed-countdown': el => { draft.ev.countdown = el.checked; },
   size: el => { const ps = structuredClone(settings().people); const p = ps.find(x => x.id === el.dataset.person); if (!p) return; p.sizes = { ...(p.sizes || {}), [el.dataset.k]: el.value.trim() }; saveSettings({ people: ps }); toast('Size saved'); },
   'person-food': el => { const ps = structuredClone(settings().people); const p = ps.find(x => x.id === el.dataset.id); if (!p) return; p.food = el.value.trim(); saveSettings({ people: ps }); toast('Saved'); },
@@ -1342,7 +1350,12 @@ const submits = {
       toast('Weather location: ' + r.name); loadWeather(true); renderPage();
     } catch { toast("Couldn't look that up"); }
   },
-  'set-api': (f) => { const url = String(new FormData(f).get('url') || '').trim(); if (url && !/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) return toast('That should be a script.google.com link'); store.apiUrl = url; store.since = 0; store.lock(); toast(url ? 'Saved — unlock with the family PIN' : 'Back to preview mode'); renderLock(); },
+  'set-api': (f) => {
+    const url = String(new FormData(f).get('url') || '').trim();
+    if (url && !/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url)) return toast('Paste the Google Apps Script web app link ending in /exec');
+    try { store.apiUrl = url; store.lock(); pinEntry = ''; pinMsg = ''; toast(store.isShared ? 'Saved — unlock with the family PIN' : 'Back to preview mode'); renderLock(); }
+    catch (err) { toast(err.message); }
+  },
 };
 
 document.addEventListener('click', e => {
@@ -1355,6 +1368,13 @@ document.addEventListener('change', e => { const el = e.target.closest('[data-ch
 document.addEventListener('input', e => { const el = e.target.closest('[data-input]'); if (el && inputs[el.dataset.input]) inputs[el.dataset.input](el, e); });
 document.addEventListener('submit', e => { const f = e.target.closest('[data-submit]'); if (!f) return; e.preventDefault(); submits[f.dataset.submit]?.(f, e); });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Tab' && modalRoot.innerHTML) {
+    const items = $$('.modal button, .modal a[href], .modal input, .modal select, .modal textarea, .modal [tabindex="0"]').filter(el => !el.disabled && !el.hidden && el.getClientRects().length);
+    const first = items[0], last = items.at(-1);
+    if (!first) { e.preventDefault(); $('.modal')?.focus(); return; }
+    if (!items.includes(document.activeElement) || (e.shiftKey && document.activeElement === first) || (!e.shiftKey && document.activeElement === last)) { e.preventDefault(); (e.shiftKey ? last : first).focus(); }
+    return;
+  }
   if (e.key === 'Escape' && modalRoot.innerHTML) { closeModal(); return; }
   if (document.body.classList.contains('locked') || modalRoot.innerHTML) return;
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1370,6 +1390,7 @@ document.addEventListener('keydown', e => {
    Boot
    ===================================================================== */
 store.on(kind => {
+  if (kind === 'storage') { renderSync(); return; }
   if (kind === 'status') { renderSync(); return; }
   if (kind === 'lock') { if (!document.body.classList.contains('locked')) { closeModal(true); renderLock(); } return; }
   if (kind === 'remote') { renderShellState(); softRender(); }
@@ -1391,4 +1412,4 @@ function boot() {
 }
 applyTheme();
 boot();
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});

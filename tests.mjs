@@ -44,14 +44,14 @@ t('backend: PIN required, token works, wrong PIN is throttled', () => {
   assert.equal(be.post({ action: 'sync', token: 'x'.repeat(64), since: 0, ops: [] }).error, 'auth');
   const bad = be.post({ action: 'unlock', pin: '0000' });
   assert.equal(bad.error, 'wrong_pin');
-  const ok = be.post({ action: 'unlock', pin: '2468' });
+  const ok = be.post({ action: 'unlock', pin: '246810' });
   assert.ok(ok.ok && ok.token.length === 64);
   for (let i = 0; i < 10; i++) be.post({ action: 'unlock', pin: '1111' });
-  assert.equal(be.post({ action: 'unlock', pin: '2468' }).error, 'locked');
+  assert.equal(be.post({ action: 'unlock', pin: '246810' }).error, 'locked');
 });
 t('backend: two devices sync, updates and deletes propagate', () => {
   const be = makeBackend();
-  const tok = be.post({ action: 'unlock', pin: '2468' }).token;
+  const tok = be.post({ action: 'unlock', pin: '246810' }).token;
   const a = be.post({ action: 'sync', token: tok, since: 0, by: 'Kevin', ops: [{ id: 'ev_1', type: 'event', data: { id: 'ev_1', title: 'Soccer' } }] });
   assert.ok(a.ok && a.items.length === 1);
   const b = be.post({ action: 'sync', token: tok, since: 0, by: 'Kate', ops: [] });
@@ -64,7 +64,7 @@ t('backend: two devices sync, updates and deletes propagate', () => {
   const b3 = be.post({ action: 'sync', token: tok, since: b2.now, ops: [] });
   assert.ok(b3.items.find(i => i.id === 'n_1').deleted);
   assert.equal(be.sheets.Items.rows.length, 3); // header + 2 items
-  const inc = be.post({ action: 'sync', token: tok, since: a3.now + 1, ops: [] });
-  assert.equal(inc.items.length, 0);
+  const inc = be.post({ action: 'sync', token: tok, since: Date.now() + 60000, ops: [] });
+  assert.equal(inc.full, true); assert.equal(inc.items.length, 2); // recover from an invalid future cursor
 });
 console.log(`✓ ${n} tests passed`);

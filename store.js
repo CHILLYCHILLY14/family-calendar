@@ -2,6 +2,7 @@
 import CONFIG from './config.js';
 
 const K = {
+  state: 'fh.state.v2',
   items: 'fh.items.v1',
   pending: 'fh.pending.v1',
   since: 'fh.since.v1',
@@ -15,7 +16,7 @@ const ls = {
     try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
   },
   set(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage full or blocked */ }
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
   },
   del(key) { try { localStorage.removeItem(key); } catch { /* ignore */ } },
 };
@@ -25,11 +26,12 @@ export function uid(prefix = 'x') {
   return `${prefix}_${Date.now().toString(36)}${rand}`.slice(0, 40);
 }
 
-class Store {
+export class Store {
   constructor() {
-    this.items = new Map(Object.entries(ls.get(K.items, {})));
-    this.pending = ls.get(K.pending, []);
-    this.since = ls.get(K.since, 0);
+    const saved = ls.get(K.state, null);
+    this.items = new Map(Object.entries(saved?.items || ls.get(K.items, {}) || {}));
+    this.pending = saved?.pending || ls.get(K.pending, []) || [];
+    this.since = saved?.since ?? ls.get(K.since, 0);
     this.token = ls.get(K.token, '');
     this.lastSync = ls.get(K.lastSync, 0);
     this.listeners = new Set();
@@ -39,12 +41,22 @@ class Store {
     this.inflight = null;
     this.by = '';
     this.fetchImpl = (...a) => fetch(...a);
+    this.session = 0;
+    this.storageError = false;
+    this.previewUnlocked = ls.get('fh.previewUnlocked', false);
   }
 
   get apiUrl() { return (ls.get(K.apiUrl, '') || CONFIG.API_URL || '').trim(); }
-  set apiUrl(url) { ls.set(K.apiUrl, (url || '').trim()); }
+  set apiUrl(url) {
+    const value = (url || '').trim();
+    if (value === this.apiUrl) return;
+    this.lock();
+    if (!ls.set(K.apiUrl, value)) throw new Error('Browser storage is unavailable. Open the app in its own browser tab and try again.');
+    this.since = 0;
+    this.persist();
+  }
   get isShared() { return !!this.apiUrl; }
-  get isUnlocked() { return this.isShared ? !!this.token : ls.get('fh.previewUnlocked', false); }
+  get isUnlocked() { return this.isShared ? !!this.token : this.previewUnlocked; }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(kind) { this.listeners.forEach(fn => { try { fn(kind); } catch (e) { console.error(e); } }); }
@@ -54,9 +66,9 @@ class Store {
   }
 
   persist() {
-    ls.set(K.items, Object.fromEntries(this.items));
-    ls.set(K.pending, this.pending);
-    ls.set(K.since, this.since);
+    // One atomic write: items, pending changes, and sync cursor stay together.
+    const failed = !ls.set(K.state, { items: Object.fromEntries(this.items), pending: this.pending, since: this.since });
+    if (failed !== this.storageError) { this.storageError = failed; this.emit('storage'); }
   }
 
   /* ---------- reads ---------- */
@@ -98,17 +110,25 @@ class Store {
   async unlock(pin) {
     if (!this.isShared) {
       const expected = String(ls.get('fh.previewPin', CONFIG.PREVIEW_PIN || '1234'));
-      if (String(pin) === expected) { ls.set('fh.previewUnlocked', true); this.setStatus('local'); return { ok: true }; }
+      if (String(pin) === expected) {
+        this.previewUnlocked = true;
+        if (!ls.set('fh.previewUnlocked', true)) { this.storageError = true; this.emit('storage'); }
+        this.setStatus('local'); return { ok: true };
+      }
       return { ok: false, error: 'wrong_pin' };
     }
+    const session = this.session;
     const res = await this.call({ action: 'unlock', pin: String(pin) });
-    if (res.ok) {
+    if (session !== this.session) return { ok: false, error: 'cancelled' };
+    if (res.ok && typeof res.token === 'string' && /^[a-f0-9]{64}$/.test(res.token)) {
       this.token = res.token; ls.set(K.token, res.token);
       this.sync(true);
-    }
+    } else if (res.ok) return { ok: false, error: 'bad_response' };
     return res;
   }
   lock() {
+    this.session++;
+    this.previewUnlocked = false;
     this.token = ''; ls.del(K.token); ls.set('fh.previewUnlocked', false);
     clearTimeout(this.timer);
     this.emit('lock');
@@ -129,7 +149,10 @@ class Store {
       });
       if (!res.ok) return { ok: false, error: 'http_' + res.status };
       const text = await res.text();
-      try { return JSON.parse(text); } catch { return { ok: false, error: 'bad_response', message: text.slice(0, 160) }; }
+      try {
+        const data = JSON.parse(text);
+        return data && typeof data === 'object' && typeof data.ok === 'boolean' ? data : { ok: false, error: 'bad_response' };
+      } catch { return { ok: false, error: 'bad_response', message: 'The server did not return a valid response. Check the saved server link.' }; }
     } catch (err) {
       return { ok: false, error: navigator.onLine === false ? 'offline' : 'network', message: String(err && err.message || err) };
     } finally { clearTimeout(t); }
@@ -154,16 +177,24 @@ class Store {
   }
 
   async _sync() {
+    const session = this.session;
     this.setStatus('syncing');
     const sent = this.pending.slice(0, 200);
     const res = await this.call({ action: 'sync', token: this.token, since: this.since, by: this.by, ops: sent });
+    if (session !== this.session) return; // Ignore a response from before locking/changing servers.
     if (!res.ok) {
       if (res.error === 'auth') { this.lock(); this.setStatus('auth', 'PIN changed — please unlock again'); return; }
       this.setStatus(res.error === 'offline' ? 'offline' : 'error', res.message || res.error);
       this.scheduleSync(15000);
       return;
     }
-    const sentIds = new Set(sent.map(o => o.opId));
+    if (!Array.isArray(res.items) || !Number.isFinite(res.now) || res.now < 0 || res.items.some(it => !it || typeof it.id !== 'string' || typeof it.type !== 'string' || !Number.isFinite(it.updatedAt))) {
+      this.setStatus('error', 'Invalid sync response — your changes are still saved on this device.');
+      return;
+    }
+    // New servers acknowledge each operation. Older servers must return the exact change.
+    const acknowledged = Array.isArray(res.accepted) ? new Set(res.accepted) : null;
+    const sentIds = new Set(sent.filter(op => acknowledged ? acknowledged.has(op.opId) : res.items.some(it => it.id === op.id && (op.deleted ? it.deleted : !it.deleted && JSON.stringify(it.data) === JSON.stringify(op.data)))).map(op => op.opId));
     this.pending = this.pending.filter(o => !sentIds.has(o.opId));
     const stillPending = new Set(this.pending.map(o => o.id));
     let changed = false;
@@ -183,7 +214,8 @@ class Store {
     this.since = res.now;
     this.lastSync = Date.now(); ls.set(K.lastSync, this.lastSync);
     this.persist();
-    this.setStatus(this.pending.length ? 'syncing' : 'idle');
+    const rejected = sent.some(op => !sentIds.has(op.opId));
+    this.setStatus(rejected ? 'error' : 'idle', rejected ? 'Some changes were not accepted by the server. They remain on this device; export a backup before editing them.' : '');
     if (changed) this.emit('remote');
   }
 
@@ -198,7 +230,8 @@ class Store {
     return n;
   }
   resetLocal() {
-    [K.items, K.pending, K.since, K.lastSync].forEach(k => ls.del(k));
+    this.session++;
+    [K.state, K.items, K.pending, K.since, K.lastSync].forEach(k => ls.del(k));
     this.items = new Map(); this.pending = []; this.since = 0;
     this.emit('data');
   }

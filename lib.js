@@ -116,7 +116,9 @@ export function occurrences(ev, from, to) {
     }
   } else if (r.freq === 'yearly') {
     const [, mm, dd] = ev.date.split('-');
-    for (let y = Math.max(Number(ev.date.slice(0, 4)), Number(lower.slice(0, 4))); y <= Number(until.slice(0, 4)); y++) {
+    const baseYear = Number(ev.date.slice(0, 4));
+    const firstYear = baseYear + Math.max(0, Math.ceil((Number(lower.slice(0, 4)) - baseYear) / interval)) * interval;
+    for (let y = firstYear; y <= Number(until.slice(0, 4)); y += interval) {
       const d = `${y}-${mm}-${dd}`;
       if (mm === '02' && dd === '29' && daysInMonth(y, 1) < 29) continue;
       if (d >= ev.date && d <= until) push(d);
@@ -129,7 +131,7 @@ export function describeRepeat(r) {
   if (!r || !r.freq || r.freq === 'none') return '';
   const n = Number(r.interval) || 1;
   const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  let s = { daily: n > 1 ? `Every ${n} days` : 'Daily', weekly: n > 1 ? `Every ${n} weeks` : 'Weekly', monthly: n > 1 ? `Every ${n} months` : 'Monthly', yearly: 'Yearly' }[r.freq];
+  let s = { daily: n > 1 ? `Every ${n} days` : 'Daily', weekly: n > 1 ? `Every ${n} weeks` : 'Weekly', monthly: n > 1 ? `Every ${n} months` : 'Monthly', yearly: n > 1 ? `Every ${n} years` : 'Yearly' }[r.freq];
   if (r.freq === 'weekly' && r.days && r.days.length) s += ' on ' + r.days.slice().sort().map(d => names[d]).join(', ');
   if (r.until) s += ' until ' + fmtDate(r.until, { month: 'short', day: 'numeric', year: 'numeric' });
   return s;
@@ -223,4 +225,42 @@ export function layoutDay(items) {
   }
   if (cluster.length) flush();
   return out;
+}
+
+// RFC 5545 export, using floating local times just like the calendar UI.
+export function calendarFile(ev, description = '') {
+  const date = value => value.replace(/-/g, '');
+  const time = value => value.replace(':', '') + '00';
+  const text = value => String(value || '').replace(/\\/g, '\\\\').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, char => '\\' + char);
+  const allDay = ev.allDay || !ev.start;
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Family Hub//EN', 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT', `UID:${text(ev.id)}@family-hub`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`];
+  if (allDay) lines.push(`DTSTART;VALUE=DATE:${date(ev.date)}`, `DTEND;VALUE=DATE:${date(addDays(ev.endDate || ev.date, 1))}`);
+  else {
+    const endMinutes = ev.end ? toMin(ev.end) : toMin(ev.start) + 60;
+    const endDate = endMinutes >= 1440 ? addDays(ev.date, 1) : ev.date;
+    lines.push(`DTSTART:${date(ev.date)}T${time(ev.start)}`, `DTEND:${date(endDate)}T${time(ev.end || fromMin(endMinutes))}`);
+  }
+  const repeat = ev.repeat;
+  if (repeat?.freq && repeat.freq !== 'none') {
+    let rule = `RRULE:FREQ=${repeat.freq.toUpperCase()};INTERVAL=${repeat.interval || 1};WKST=SU`;
+    if (repeat.freq === 'weekly' && repeat.days?.length) rule += ';BYDAY=' + repeat.days.map(day => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][day]).join(',');
+    if (repeat.until) rule += ';UNTIL=' + date(repeat.until) + (allDay ? '' : 'T235959');
+    lines.push(rule);
+    if (ev.exdates?.length) lines.push((allDay ? 'EXDATE;VALUE=DATE:' : 'EXDATE:') + [...new Set(ev.exdates)].sort().map(day => date(day) + (allDay ? '' : 'T' + time(ev.start))).join(','));
+  }
+  lines.push(`SUMMARY:${text(catById(ev.category).icon + ' ' + ev.title)}`);
+  if (ev.location) lines.push(`LOCATION:${text(ev.location)}`);
+  if (description) lines.push(`DESCRIPTION:${text(description)}`);
+  lines.push('END:VEVENT', 'END:VCALENDAR');
+  // Fold at 75 UTF-8 octets, without splitting accented letters or emoji.
+  const encoder = new TextEncoder();
+  return lines.map(line => {
+    const parts = []; let part = ''; let bytes = 0;
+    for (const char of line) {
+      const size = encoder.encode(char).length;
+      if (bytes + size > 75) { parts.push(part); part = ' '; bytes = 1; }
+      part += char; bytes += size;
+    }
+    parts.push(part); return parts.join('\r\n');
+  }).join('\r\n') + '\r\n';
 }

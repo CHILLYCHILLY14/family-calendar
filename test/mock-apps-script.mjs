@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 
-export function makeBackend() {
+export function makeBackend({ pin = '246810' } = {}) {
   const sheets = {};
   const makeSheet = (name) => {
     const rows = []; // 1-based rows as arrays
@@ -23,7 +23,7 @@ export function makeBackend() {
     };
     sheets[name] = sh; return sh;
   };
-  const props = {}; const cache = {};
+  const props = pin ? { FAMILY_PIN: pin } : {}; const cache = {};
   const ctx = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: n => sheets[n] || null, insertSheet: n => makeSheet(n) }), flush() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
@@ -42,7 +42,7 @@ export function makeBackend() {
   return {
     post: (body) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).text),
     get: () => JSON.parse(ctx.doGet().text),
-    sheets, cache,
+    sheets, cache, props,
   };
 }
 

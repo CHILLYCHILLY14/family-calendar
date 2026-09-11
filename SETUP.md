@@ -12,13 +12,13 @@ You can do part 1 first and play with the app right away — until part 2 is don
 
 ## Part 1 — Put the app on GitHub Pages
 
-1. Sign in at github.com → **＋** (top right) → **New repository**.
-2. Name it `family-calendar`. Choose **Public** (free GitHub Pages needs public; the family's data is *not* in the repo — it lives in your private Google Sheet behind the PIN).
-3. Click **Create repository**, then **uploading an existing file**.
-4. Unzip `family-calendar.zip` on your Mac, open the folder, select **everything inside it** and drag it into the GitHub page. Click **Commit changes**.
-5. Go to **Settings → Pages**. Under *Build and deployment* choose **Source: Deploy from a branch**, **Branch: main**, folder **/(root)** → **Save**.
-6. After a minute or two your app is live at:
-   **`https://CHILLYCHILLY14.github.io/family-calendar/`**
+The repository is **CHILLYCHILLY14/family-calendar** and includes automatic checks and deployment.
+
+1. Open **Settings → Pages** and choose **Source: GitHub Actions**.
+2. Commit changes to `main`. The **Check and deploy Family Hub** workflow tests the app, packages its public files, deploys them, and checks the live version.
+3. Open [Family Hub](https://chillychilly14.github.io/family-calendar/).
+
+If a check fails, the workflow stops before deployment. Backend source and tests stay in the repository; they are excluded from the deployed website.
 
 Open it, enter `1234`, and try **Settings → Add sample events** to see everything filled in.
 
@@ -29,10 +29,7 @@ Open it, enter `1234`, and try **Settings → Add sample events** to see everyth
 1. Go to **sheets.google.com** → create a **Blank spreadsheet**. Name it `Family Hub Data`.
 2. In the sheet: **Extensions → Apps Script**.
 3. Delete the sample code, then paste in everything from `apps-script/Code.gs` (from the zip).
-4. **Change the PIN** on this line near the top — use 6 or more digits:
-   ```js
-   const FAMILY_PIN = '2468';
-   ```
+4. Open **Project Settings** (gear on the left) → **Script properties → Add script property**. Set **Property** to `FAMILY_PIN` and **Value** to your own 6–12 digit PIN, then **Save script properties**. The backend will not accept a PIN until this is configured. Do not put your real PIN in any GitHub file.
 5. Click **💾 Save**. In the function dropdown pick **setup** and press **▶ Run**.
    Google asks for permission: **Review permissions → your account → Advanced → Go to Family Hub (unsafe) → Allow**. (It says "unsafe" only because it's your own private script, not a published app.)
 6. Click **Deploy → New deployment** → gear ⚙️ → **Web app**:
@@ -50,12 +47,12 @@ Open it, enter `1234`, and try **Settings → Add sample events** to see everyth
 > Want to test before committing? In the app: **Settings → Sharing & sync → Advanced** lets you paste the URL for just that one device.
 
 ### Changing the PIN later
-Edit `FAMILY_PIN` in Apps Script → **Save** → **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**. The URL stays the same. Every device will be asked for the new PIN.
+Change the `FAMILY_PIN` value in **Apps Script → Project Settings → Script properties** and save it. No code change or new deployment is required for a PIN change. The URL stays the same, and devices must unlock with the new PIN at their next sync. Deploy a new version when you change the script code itself.
 
 ### How safe is it?
 - The PIN is checked by Google on the server, not in the website code, so reading the public GitHub code doesn't reveal it.
 - After 8 wrong PINs, PIN entry pauses for 15 minutes.
-- Your data is only in your Google Sheet (tab **Items**). You can look at it, and it's automatically backed up by Google. The app also has **Settings → Export backup**.
+- Shared data is saved in your private Google Sheet (tab **Items**) and cached locally on each device for offline use. **Lock** clears the access token but does not erase or encrypt the local cache. Use your phone/computer passcode on shared devices. Use **Settings → Export backup** regularly; Google Sheets version history is not a separate backup.
 - Anyone who has the PIN can see and edit — same as a paper calendar on the fridge. Use a PIN the kids can remember but a stranger can't guess.
 
 ---
@@ -72,7 +69,7 @@ Edit `FAMILY_PIN` in Apps Script → **Save** → **Deploy → Manage deployment
 3. Keep a button (Option A) above it too — when embedded, the app also shows a **↗** button to pop out full screen.
 4. **Publish**.
 
-Tip: you can also password-protect that Wix page (Page settings → Permissions) for an extra lock, but the app's own PIN already protects the data.
+Tip: Wix page protection only protects that Wix page; the GitHub Pages link remains publicly reachable. In shared mode, the Google backend checks the family PIN before sending calendar data. Preview mode is device-local and its PIN is a convenience lock, not encryption.
 
 ---
 
@@ -103,4 +100,10 @@ It then opens like a normal app, full screen, with its own icon.
 | Changed Code.gs but nothing changed | Deploy → Manage deployments → Edit → **New version**. |
 | A phone shows old content | Pull down/refresh. The app always checks for the newest version when online. |
 | Wrong PIN lockout | Wait 15 minutes. |
-| Want to start over | Delete the rows in the **Items** tab of the sheet (keep row 1). |
+| Want to remove events | Delete them in the app so the deletion syncs to every device. Export a backup first if removing many items. |
+| Storage unavailable | Keep the tab open and export a backup. Free browser storage or open Family Hub directly rather than inside Wix. |
+| A saved server link is wrong | Use **Connection help** on the PIN screen to correct the `/exec` link. |
+
+## Updating an older backend
+
+Paste the updated `apps-script/Code.gs` into the existing Apps Script project, add your `FAMILY_PIN` Script property, and deploy a new version under the existing deployment. Keep the same Sheet and `/exec` URL. The updated app preserves existing device data and works with the original sync response format.
