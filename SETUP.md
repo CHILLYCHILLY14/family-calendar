@@ -73,6 +73,58 @@ Tip: Wix page protection only protects that Wix page; the GitHub Pages link rema
 
 ---
 
+## Reminders & notifications
+
+Three kinds of alerts:
+
+| What | When | Where it shows |
+|---|---|---|
+| **Daily checklist** (e.g. ☕ *Set coffee machine · 9pm*) | at its time, then every 15 min until someone taps ✓ Done | banner at the top of the app + phone push with a **✓ Done** button |
+| **Event reminders** | 1 hour before games/appointments, 30 min for everything else (you choose per event) | phone push + pop-up while the app is open |
+| **Morning summary** | 7am, if you turn it on | one message with the day's events, checklist, dinner and list counts |
+
+### 1. Update the Google Apps Script (once)
+
+1. Open your **Family Hub Data** sheet → **Extensions → Apps Script**.
+2. Select all the old code and paste in the new `apps-script/Code.gs` from this repo.
+3. Your PIN is unchanged — it stays in **Project Settings → Script properties** (`FAMILY_PIN`).
+4. Click **💾 Save**, choose **setup** in the function list, press **▶ Run**, and allow the new permissions (it now sends notifications and runs a timer).
+5. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy.** The web app URL stays the same, so nothing else needs changing.
+
+The timer then checks every 5 minutes, whether or not anybody has the app open.
+
+### 2. Get push notifications on each phone (free)
+
+1. Install **ntfy** — [iPhone](https://apps.apple.com/app/ntfy/id1625396347) · [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy).
+2. In Family Hub: **Settings → 🔔 Reminders & notifications**, tap **🎲 Create** beside your name, then **📋 Copy**.
+3. In the ntfy app tap **＋**, paste that topic name, **Subscribe**.
+4. Back in Settings tap **🔔 Test** — the phone should buzz.
+5. Use **Send … reminders for** to choose whose events you want (parents usually pick everyone; kids just themselves).
+
+The topic name is the only secret, so keep it private — anyone who knows it can read those notifications. Prefer email? Put an address in the email box instead (or as well); Gmail allows about 100 reminder emails a day.
+
+### 3. Pop-ups while the app is open
+
+**Settings → Allow pop-ups** turns on browser notifications for that device. On iPhone this only works if you first add the app to the home screen (Share → Add to Home Screen). Phone push through ntfy works either way, which is why it's the recommended setup.
+
+### Using the daily checklist
+
+- It starts with **☕ Set coffee machine at 9pm** — open it from the dashboard to change the time, the days, or whose job it is.
+- **＋ Add** has ready-made items: pack lunches, garbage night, sports bag, thaw meat, homework check, lock up, screen time off…
+- Anyone can tap **✓ Done** — everyone else's phone sees it within seconds, and the reminders stop. Ticking items earns ⭐ stars on that person's page (kids like this more than you'd expect).
+- On a phone notification, the **✓ Done** button ticks it off without opening anything.
+
+---
+
+## Meals: healthy, meal prep, and staying fresh
+
+- **Do the recipes change?** Yes: the daily feed picks new ones every day, **🔄 New picks** reshuffles on demand, and **🌍 Discover new recipes** pulls fresh ideas from a free online library (TheMealDB) by cuisine — save any of them into *Our recipes* with one tap. You can also add your own.
+- **🥗 Healthy** filters to the lighter, veggie- and protein-forward recipes.
+- **📦 Meal prep** filters to batch recipes. Each shows how much it makes, how long it keeps, whether it freezes, and how to reheat.
+- **Sunday meal prep**: open 2–4 prep recipes and tap **Add to prep plan**. Picky Eats then builds one combined shopping list (one tap to add it all to groceries), a cook-order game plan, and the storage notes for each dish.
+
+---
+
 ## Add it to everyone's home screen
 
 - **iPhone/iPad:** open the GitHub link in **Safari** → **Share** → **Add to Home Screen**.

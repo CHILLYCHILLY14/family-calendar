@@ -264,3 +264,31 @@ export function calendarFile(ev, description = '') {
     parts.push(part); return parts.join('\r\n');
   }).join('\r\n') + '\r\n';
 }
+
+/* ---------------- routines & reminders ---------------- */
+export const ROUTINE_TEMPLATES = [
+  { title: 'Set coffee machine', icon: '☕', time: '21:00' },
+  { title: 'Pack school lunches', icon: '🥪', time: '20:00' },
+  { title: 'Pack sports bag', icon: '🎒', time: '19:30' },
+  { title: 'Garbage & recycling out', icon: '🗑️', time: '20:00' },
+  { title: 'Thaw meat for tomorrow', icon: '🥩', time: '20:30' },
+  { title: 'Homework check', icon: '📚', time: '19:00' },
+  { title: 'Charge phones & tablets', icon: '🔌', time: '21:30' },
+  { title: 'Lock doors & lights off', icon: '🔒', time: '22:30' },
+  { title: 'Feed the pet', icon: '🐾', time: '07:30' },
+  { title: 'Take out tomorrow\'s clothes', icon: '👕', time: '20:30' },
+  { title: 'Water plants', icon: '🪴', time: '09:00' },
+  { title: 'Screen time off', icon: '📵', time: '20:00' },
+];
+export const REMIND_TIMED = [['', 'No reminder'], ['0', 'At start time'], ['10', '10 min before'], ['30', '30 min before'], ['60', '1 hour before'], ['120', '2 hours before'], ['1440', '1 day before']];
+export const REMIND_ALLDAY = [['', 'No reminder'], ['-480', 'Morning of (8am)'], ['300', 'Night before (7pm)']];
+export const defaultRemind = (cat) => ['work', 'school', 'chores'].includes(cat) ? '' : ['volleyball', 'soccer', 'baseball', 'ballhockey', 'appointment'].includes(cat) ? '60' : '30';
+// minutes-of-day an event's reminder is due, relative to the occurrence date (may be negative → previous day)
+export function remindAt(ev) {
+  if (ev.remind === '' || ev.remind == null) return null;
+  const r = Number(ev.remind);
+  if (ev.allDay || !ev.start) return -r; // -480 → 8:00 same day; 300 → 7pm the day before
+  return toMin(ev.start) - r;
+}
+export const routineOn = (rt, date) => rt.active !== false && (!rt.days || !rt.days.length || rt.days.includes(dow(date)));
+export const dayIndex = s => Math.round(Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) / 86400000);

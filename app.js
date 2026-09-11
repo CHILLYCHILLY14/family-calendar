@@ -111,6 +111,108 @@ function conflicts(draft, date) {
 }
 
 /* =====================================================================
+   Daily checklist (routines) — e.g. "☕ Set coffee machine · 9pm"
+   ===================================================================== */
+const routines = () => store.list('routine').sort((a, b) => (a.time || '99').localeCompare(b.time || '99') || (a.title || '').localeCompare(b.title || ''));
+const logId = (rt, date) => `rl_${rt.id}_${date}`;
+const routineLog = (rt, date) => { const l = store.get(logId(rt, date)); return l && l.done ? l : null; };
+const todaysRoutines = (date = L.today()) => routines().filter(rt => L.routineOn(rt, date));
+function markRoutine(rt, date, done) {
+  const id = logId(rt, date);
+  if (done) store.put('routineLog', { id, routineId: rt.id, date, done: true, by: me()?.name || '', byId: prefs.me || '', at: Date.now() });
+  else store.remove(id);
+}
+// routines whose time has passed today and nobody has ticked yet
+function dueRoutines(forIds = null) {
+  const t = L.today(); const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  return todaysRoutines(t).filter(rt => rt.time && L.toMin(rt.time) <= nowMin && !routineLog(rt, t) && (!forIds || !rt.people?.length || rt.people.some(id => forIds.includes(id))));
+}
+function starsFor(personId, days = 7) {
+  const from = L.addDays(L.today(), -(days - 1));
+  return store.list('routineLog').filter(l => l.done && l.byId === personId && l.date >= from).length;
+}
+let seeded = false;
+function maybeSeedRoutines() {
+  if (seeded || !store.isUnlocked) return;
+  if (store.isShared && !store.lastSync) return; // wait for the family's data first so we never duplicate
+  seeded = true;
+  if (store.meta('ro_coffee')) return; // exists, or was deleted on purpose
+  const kevin = people().find(p => /kevin/i.test(p.name));
+  store.put('routine', { id: 'ro_coffee', title: 'Set coffee machine', icon: '☕', time: '21:00', days: [], people: kevin ? [kevin.id] : [], remind: true, nag: 15, active: true });
+}
+
+/* =====================================================================
+   Reminders while the app is open (phones get push through ntfy — see Settings)
+   ===================================================================== */
+const followIds = () => { const p = me(); if (!p) return null; const f = p.notify?.follow; return f && f.length ? f : [p.id]; };
+const involves = (ids, follow) => !follow || !ids || !ids.length || ids.some(id => follow.includes(id));
+function remindersDue(fromAbs, toAbs) {
+  const out = []; const follow = followIds();
+  const t = L.today();
+  for (let k = -1; k <= 2; k++) {
+    const d = L.addDays(t, k);
+    for (const o of occBetween(d, d, { filter: [], cat: '' })) {
+      if (o.date !== d) continue;
+      const rel = L.remindAt(o.ev); if (rel == null) continue;
+      const abs = L.dayIndex(d) * 1440 + rel;
+      if (abs > fromAbs && abs <= toAbs && involves(o.ev.people, follow)) out.push({ key: `ev:${o.ev.id}@${d}:${o.ev.remind}`, kind: 'event', o });
+    }
+  }
+  for (const rt of todaysRoutines(t)) {
+    if (rt.remind === false || !rt.time || routineLog(rt, t) || !involves(rt.people, follow)) continue;
+    const abs = L.dayIndex(t) * 1440 + L.toMin(rt.time);
+    if (abs > fromAbs && abs <= toAbs) out.push({ key: `rt:${rt.id}@${t}`, kind: 'routine', rt, date: t });
+  }
+  return out;
+}
+function nowAbs() { const n = new Date(); return L.dayIndex(L.today()) * 1440 + n.getHours() * 60 + n.getMinutes(); }
+let alerts = []; // on-screen reminder cards
+function checkLocalReminders() {
+  if (!store.isUnlocked) return;
+  const now = nowAbs();
+  const last = ls.get('fh.remindCheck', 0);
+  ls.set('fh.remindCheck', now);
+  if (!last || now - last > 60) return; // first run / long sleep: don't replay old alerts
+  const seen = new Set(ls.get('fh.remindSeen', []));
+  const fresh = remindersDue(last, now).filter(r => !seen.has(r.key));
+  if (!fresh.length) return;
+  fresh.forEach(r => seen.add(r.key));
+  ls.set('fh.remindSeen', [...seen].slice(-200));
+  // checklist items already get the banner at the top of every page; pop a card for calendar reminders
+  alerts = [...alerts, ...fresh.filter(r => r.kind === 'event')].slice(-3);
+  renderAlerts();
+  const pushed = me()?.notify?.ntfy; // phone already gets an ntfy push → don't double-buzz
+  if (!pushed && 'Notification' in window && Notification.permission === 'granted') fresh.forEach(r => systemNotify(r));
+}
+function alertText(r) {
+  if (r.kind === 'routine') return { title: `${r.rt.icon || '✅'} ${r.rt.title}`, body: `${L.fmtTime(r.rt.time)} · tap Done when finished` };
+  const ev = r.o.ev; const c = L.catById(ev.category);
+  return { title: `${c.icon} ${ev.title}`, body: `${L.relDay(r.o.date)}${ev.allDay || !ev.start ? '' : ' · ' + L.fmtRange(ev)}${ev.location ? ' · ' + ev.location : ''}${ev.bring ? ' · Bring: ' + ev.bring : ''}` };
+}
+async function systemNotify(r) {
+  const { title, body } = alertText(r);
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) reg.showNotification(title, { body, tag: r.key, icon: './assets/icons/icon-192.png', badge: './assets/icons/icon-192.png', data: { url: location.href.split('#')[0] } });
+    else new Notification(title, { body, tag: r.key, icon: './assets/icons/icon-192.png' });
+  } catch { /* not allowed here */ }
+}
+function renderAlerts() {
+  let el = $('#alerts');
+  if (!el) { el = document.createElement('div'); el.id = 'alerts'; el.setAttribute('role', 'alert'); document.body.appendChild(el); }
+  el.innerHTML = alerts.map((r, i) => { const { title, body } = alertText(r); return `<div class="alert-card"><span class="bell">🔔</span><div><b>${esc(title)}</b><small>${esc(body)}</small></div>
+    ${r.kind === 'routine' ? `<button class="btn sm primary" data-act="alert-done" data-i="${i}">✓ Done</button>` : `<button class="btn sm" data-act="alert-open" data-i="${i}">Open</button>`}<button class="icon-btn xs" data-act="alert-close" data-i="${i}" aria-label="Dismiss">✕</button></div>`; }).join('');
+}
+// top-of-screen banner for checklist items that are due and not done
+function renderDueBanner() {
+  const el = $('#due-banner'); if (!el) return;
+  const list = store.isUnlocked ? dueRoutines(followIds()) : [];
+  el.hidden = !list.length;
+  el.innerHTML = list.map(rt => `<div class="due-item"><span class="due-ico">${rt.icon || '✅'}</span><span class="due-text"><b>${esc(rt.title)}</b><small>${L.fmtTime(rt.time)}${rt.people?.length ? ' · ' + esc(rt.people.map(id => personById(id)?.name).filter(Boolean).join(', ')) : ''}</small></span><button class="btn sm primary" data-act="routine-done" data-id="${rt.id}">✓ Done</button></div>`).join('');
+}
+function randomTopic() { const a = new Uint8Array(6); crypto.getRandomValues(a); return 'familyhub-' + Array.from(a, b => b.toString(36).padStart(2, '0')).join('').slice(0, 10); }
+
+/* =====================================================================
    Weather (Open-Meteo — free, no key)
    ===================================================================== */
 let weather = ls.get('fh.weather', null);
@@ -316,6 +418,7 @@ function renderShell() {
         </div>
       </header>
       <div id="storage-warning" class="storage-warning" role="alert" hidden></div>
+      <div id="due-banner" class="due-banner" role="status" hidden></div>
       <main id="main" class="main" tabindex="-1"></main>
     </div>
     <nav class="bottom-nav" aria-label="Main">
@@ -402,7 +505,7 @@ function evRow(o, { showDate = false, compact = false } = {}) {
     <span class="bar"></span>
     <span class="ev-ico" style="--cc:${c.color}">${c.icon}</span>
     <span class="ev-main">
-      <span class="ev-title">${esc(ev.title || c.name)}${ev.repeat && ev.repeat.freq !== 'none' ? ' <span class="rep" title="Repeats">↻</span>' : ''}</span>
+      <span class="ev-title">${esc(ev.title || c.name)}${ev.repeat && ev.repeat.freq !== 'none' ? ' <span class="rep" title="Repeats">↻</span>' : ''}${ev.remind !== '' && ev.remind != null ? ' <span class="rep" title="Reminder on">🔔</span>' : ''}</span>
       <span class="ev-sub">${showDate ? `<b>${esc(L.relDay(o.date))}</b> · ` : ''}${esc(time)}${ev.location ? ' · 📍' + esc(ev.location) : ''}</span>
       ${rides && !compact ? `<span class="ev-sub rides">${rides}</span>` : ''}
     </span>
@@ -427,6 +530,28 @@ function greeting() {
   const h = new Date().getHours();
   return h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }
+function checklistCard(personId = '') {
+  const t = L.today();
+  let list = todaysRoutines(t);
+  if (personId) list = list.filter(rt => !rt.people?.length || rt.people.includes(personId));
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const doneCount = list.filter(rt => routineLog(rt, t)).length;
+  const rows = list.map(rt => {
+    const log = routineLog(rt, t);
+    const due = !log && rt.time && L.toMin(rt.time) <= nowMin;
+    const who = (rt.people || []).map(personById).filter(Boolean);
+    return `<div class="check-row ${log ? 'done' : ''} ${due ? 'due' : ''}">
+      <span class="check-ico">${rt.icon || '✅'}</span>
+      <button class="check-main linkish" data-act="edit-routine" data-id="${rt.id}"><b>${esc(rt.title)}</b><small>${rt.time ? L.fmtTime(rt.time) : 'Any time'}${who.length ? ' · ' + esc(who.map(p => p.name).join(', ')) : ''}${rt.remind !== false && rt.time ? ' · 🔔' : ''}${log ? ` · ✓ ${esc(log.by || 'Done')} ${new Date(log.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : due ? ' · <b class="due-tag">Due now</b>' : ''}</small></button>
+      ${log ? `<button class="btn sm ghost" data-act="routine-undo" data-id="${rt.id}" title="Undo">↩︎</button><span class="check-done">✓</span>`
+        : `<button class="btn sm ${due ? 'primary' : ''}" data-act="routine-done" data-id="${rt.id}">✓ Done</button>`}
+    </div>`;
+  }).join('');
+  return `<section class="card pad d-check">
+    <div class="sec-head"><h2>✅ Today's checklist</h2><span class="row">${list.length ? `<span class="muted tiny">${doneCount}/${list.length} done</span>` : ''}<button class="link" data-act="new-routine" ${personId ? `data-person="${personId}"` : ''}>＋ Add</button></span></div>
+    ${list.length ? `<div class="checklist">${rows}</div>` : `<p class="muted tiny">Nightly jobs with a button to tick off — like ☕ Set coffee machine at 9pm.</p>`}
+  </section>`;
+}
 function viewHome() {
   const t = L.today();
   const s = settings();
@@ -447,10 +572,11 @@ function viewHome() {
     const todayCount = mine.filter(o => o.date === t).length;
     const weekCount = mine.filter(o => o.date <= L.addDays(t, 6)).length;
     const needs = store.list('need').filter(n => !n.done && n.for === p.id).length;
+    const stars = starsFor(p.id);
     return `<a class="person-card" href="#person/${p.id}" style="--pc:${p.color};--pi:${L.ink(p.color)}">
       <div class="pc-top">${avatar(p)}<div><b>${esc(p.name)}</b><span class="muted tiny">${todayCount ? `${todayCount} today` : 'Free today'} · ${weekCount} this week</span></div></div>
       <div class="pc-next">${next ? `<span class="ev-ico sm">${L.catById(next.ev.category).icon}</span><span><b>${esc(next.ev.title)}</b><br><span class="muted tiny">${esc(L.relDay(next.date))}${next.allDay ? '' : ' · ' + L.fmtTime(next.ev.start)}</span></span>` : '<span class="muted tiny">Nothing coming up</span>'}</div>
-      ${needs ? `<span class="pc-badge">🛒 ${needs}</span>` : ''}
+      <span class="pc-badges">${stars ? `<span class="pc-badge" title="Checklist items done this week">⭐ ${stars}</span>` : ''}${needs ? `<span class="pc-badge">🛒 ${needs}</span>` : ''}</span>
     </a>`;
   }).join('');
 
@@ -505,6 +631,7 @@ function viewHome() {
   ${personChips(prefs.filter)}
 
   <div class="dash">
+    ${checklistCard()}
     <section class="card pad d-today">
       <div class="sec-head"><h2>Today</h2><button class="link" data-act="goto-day" data-date="${t}">Day view →</button></div>
       ${occToday.length ? `<div class="timeline">${occToday.map(o => evRow(o)).join('')}</div>` : `<div class="empty"><span>🌤️</span><p>Nothing on the calendar today.</p><button class="btn sm" data-act="new-event" data-date="${t}">Add something</button></div>`}
@@ -774,7 +901,7 @@ function newEvent(date, extra = {}) {
   const who = extra.person ? [extra.person] : (prefs.filter.length ? [...prefs.filter] : (me() ? [me().id] : []));
   const cat = extra.category || prefs.cat || 'family';
   draft = {
-    ev: { id: '', title: '', category: cat, people: who, date: d, endDate: '', allDay: false, start: extra.start || '18:00', end: extra.end || L.fromMin(Math.min(23 * 60 + 59, L.toMin(extra.start || '18:00') + 60)), location: '', notes: '', bring: L.catById(cat).bring || '', repeat: { freq: 'none', interval: 1, days: [], until: '' }, exdates: [], dropoff: '', pickup: '', countdown: false },
+    ev: { id: '', title: '', category: cat, people: who, date: d, endDate: '', allDay: false, start: extra.start || '18:00', end: extra.end || L.fromMin(Math.min(23 * 60 + 59, L.toMin(extra.start || '18:00') + 60)), location: '', notes: '', bring: L.catById(cat).bring || '', repeat: { freq: 'none', interval: 1, days: [], until: '' }, exdates: [], dropoff: '', pickup: '', countdown: false, remind: L.defaultRemind(cat) },
     occDate: d, isNew: true, onlyThis: false,
   };
   renderEditor();
@@ -822,6 +949,7 @@ function renderEditor() {
         ${recurring ? `<label class="field inline"><span class="label">Until (optional — e.g. end of season)</span><input class="input" type="date" value="${esc(r.until || '')}" min="${ev.date}" data-change="ed-until"/></label>` : ''}
       </div>`}
 
+      <label class="field"><span class="label">🔔 Reminder</span><select class="select" data-change="ed-field" data-field="remind">${(ev.allDay ? L.REMIND_ALLDAY : L.REMIND_TIMED).map(([v, l]) => `<option value="${v}" ${String(ev.remind ?? '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="field"><span class="label">Where</span><input class="input" placeholder="Arena, field, school…" value="${esc(ev.location)}" data-input="ed-field" data-field="location" maxlength="120"/></label>
 
       <div class="grid2">
@@ -962,41 +1090,49 @@ function addNeed({ text, qty = '', list = 'groceries', forP = '', urgent = false
 const cuisineName = id => CUISINES.find(c => c.id === id)?.name || 'Family';
 const cuisineFlag = id => CUISINES.find(c => c.id === id)?.flag || '🏡';
 const allRecipes = () => [...RECIPES, ...store.list('recipe').map(r => ({ ...r, custom: true }))];
-const recipeById = id => allRecipes().find(r => r.id === id);
+const recipeById = id => allRecipes().find(r => r.id === id) || Object.values(discover.cache).find(r => r.id === id);
 const recipeMeta = id => store.get('rm_' + id) || { id: 'rm_' + id, likes: [], dislikes: [] };
+const PREP_ID = 'prepplan_main';
+const prepPlan = () => store.get(PREP_ID) || { id: PREP_ID, recipes: [] };
+function recipeCard(r, big = false) {
+  const m = recipeMeta(r.id);
+  const likers = (m.likes || []).map(personById).filter(Boolean);
+  return `<button class="recipe-card ${big ? 'big' : ''}" data-act="open-recipe" data-id="${r.id}">
+    ${r.image ? `<img class="rc-photo" src="${esc(r.image)}/preview" alt="" loading="lazy"/>` : `<span class="rc-emoji">${r.emoji || '🍲'}</span>`}
+    <span class="rc-body"><b>${esc(r.name)}</b>
+      <span class="rc-meta">${cuisineFlag(r.cuisine)} ${esc(cuisineName(r.cuisine))}${r.time ? ` · ⏱ ${r.time} min` : ''}${r.cook ? ' + ' + esc(r.cook) : ''}${r.level ? ' · ' + esc(r.level) : ''}</span>
+      ${r.healthy || r.prep ? `<span class="rc-badges">${r.healthy ? '<span class="badge healthy">🥗 Healthy</span>' : ''}${r.prep ? '<span class="badge prep">📦 Meal prep</span>' : ''}</span>` : ''}
+      ${big && r.picky?.[0] ? `<span class="rc-tip">💡 ${esc(r.picky[0])}</span>` : ''}
+      ${likers.length ? `<span class="rc-likes">${likers.map(p => `<i style="--pc:${p.color}" title="${esc(p.name)} likes this">${esc(p.name[0])}</i>`).join('')} 👍</span>` : ''}
+    </span></button>`;
+}
 function viewMeals() {
   const t = L.today();
-  const picks = dailyPicks(t, 4);
+  const shuffle = prefs.pickShuffle && prefs.pickShuffle.date === t ? prefs.pickShuffle.n : 0;
+  const picks = dailyPicks(t, 4, shuffle);
   const wkStart = L.startOfWeek(t, prefs.weekStart);
   const q = prefs.mealSearch.trim().toLowerCase();
   let list = allRecipes().filter(r => (prefs.mealCuisine === 'all' || r.cuisine === prefs.mealCuisine) && (prefs.mealType === 'all' || r.meal === prefs.mealType));
   if (prefs.mealFav) list = list.filter(r => recipeMeta(r.id).likes?.length);
+  if (prefs.mealHealthy) list = list.filter(r => r.healthy);
+  if (prefs.mealPrepOnly) list = list.filter(r => r.prep);
   if (q) list = list.filter(r => [r.name, cuisineName(r.cuisine), ...(r.tags || []), ...(r.ingredients || [])].join(' ').toLowerCase().includes(q));
-  const card = (r, big) => {
-    const m = recipeMeta(r.id);
-    const likers = (m.likes || []).map(personById).filter(Boolean);
-    return `<button class="recipe-card ${big ? 'big' : ''}" data-act="open-recipe" data-id="${r.id}">
-      <span class="rc-emoji">${r.emoji || '🍲'}</span>
-      <span class="rc-body"><b>${esc(r.name)}</b>
-        <span class="rc-meta">${cuisineFlag(r.cuisine)} ${esc(cuisineName(r.cuisine))} · ⏱ ${r.time || '?'} min${r.cook ? ' + ' + esc(r.cook) : ''} · ${esc(r.level || 'Easy')}</span>
-        ${big && r.picky?.[0] ? `<span class="rc-tip">💡 ${esc(r.picky[0])}</span>` : ''}
-        ${likers.length ? `<span class="rc-likes">${likers.map(p => `<i style="--pc:${p.color}" title="${esc(p.name)} likes this">${esc(p.name[0])}</i>`).join('')} 👍</span>` : ''}
-      </span></button>`;
-  };
   const plan = Array.from({ length: 7 }, (_, i) => {
     const d = L.addDays(wkStart, i); const p = store.get('mp_' + d); const r = p?.recipeId && recipeById(p.recipeId);
-    return `<button class="plan-day ${d === t ? 'today' : ''} ${p ? 'set' : ''}" data-act="plan-day" data-date="${d}"><span class="tiny muted">${DAY_NAMES[L.dow(d)]} ${L.parse(d).getDate()}</span><span class="pd-emoji">${r ? r.emoji : p?.text ? '🍲' : '＋'}</span><span class="pd-name">${r ? esc(r.name) : p?.text ? esc(p.text) : '<span class="muted">Plan</span>'}</span></button>`;
+    return `<button class="plan-day ${d === t ? 'today' : ''} ${p ? 'set' : ''}" data-act="plan-day" data-date="${d}"><span class="tiny muted">${DAY_NAMES[L.dow(d)]} ${L.parse(d).getDate()}</span><span class="pd-emoji">${r ? r.emoji || '🍲' : p?.text || p?.recipeName ? '🍲' : '＋'}</span><span class="pd-name">${r ? esc(r.name) : p?.text || p?.recipeName ? esc(p.text || p.recipeName) : '<span class="muted">Plan</span>'}</span></button>`;
   }).join('');
+  const healthyPicks = allRecipes().filter(r => r.healthy);
   return `
   <section class="card pad meal-hero">
-    <div class="sec-head"><div><p class="eyebrow">Daily feed · ${L.fmtDate(t, { weekday: 'long', month: 'short', day: 'numeric' })}</p><h2>Today's picky-proof picks</h2></div>
-      <button class="btn sm" data-act="surprise">🎲 Surprise me</button></div>
-    <div class="picks">${picks.map(r => card(r, true)).join('')}</div>
+    <div class="sec-head"><div><p class="eyebrow">Daily feed · ${L.fmtDate(t, { weekday: 'long', month: 'short', day: 'numeric' })}</p><h2>Today's picky-proof picks</h2><p class="muted tiny">Fresh picks every day · ${allRecipes().length} recipes · ${healthyPicks.length} healthy · ${allRecipes().filter(r => r.prep).length} meal-prep</p></div>
+      <div class="row wrap"><button class="btn sm" data-act="new-picks">🔄 New picks</button><button class="btn sm" data-act="surprise">🎲 Surprise me</button></div></div>
+    <div class="picks">${picks.map(r => recipeCard(r, true)).join('')}</div>
   </section>
   <section class="card pad">
     <div class="sec-head"><h2>🗓️ This week's dinners</h2><span class="muted tiny">Tap a day to plan</span></div>
     <div class="plan-strip">${plan}</div>
   </section>
+  ${prepCard()}
   <section class="meal-filters">
     <div class="chips scroll-x">
       <button class="chip ${prefs.mealCuisine === 'all' ? 'on' : ''}" data-act="meal-cuisine" data-id="all">🌍 All</button>
@@ -1005,35 +1141,113 @@ function viewMeals() {
     </div>
     <div class="filter-row">
       <div class="seg sm">${['all', ...MEAL_TYPES].map(m => `<button class="${prefs.mealType === m ? 'on' : ''}" data-act="meal-type" data-id="${m}">${m === 'all' ? 'Any meal' : m}</button>`).join('')}</div>
+      <button class="chip ${prefs.mealHealthy ? 'on' : ''}" data-act="meal-toggle" data-k="mealHealthy">🥗 Healthy</button>
+      <button class="chip ${prefs.mealPrepOnly ? 'on' : ''}" data-act="meal-toggle" data-k="mealPrepOnly">📦 Meal prep</button>
       <button class="chip ${prefs.mealFav ? 'on' : ''}" data-act="meal-fav">👍 Family likes</button>
       <input class="input sm search" type="search" placeholder="Search: chicken, noodles, rice…" value="${esc(prefs.mealSearch)}" data-input="meal-search" aria-label="Search recipes"/>
       <button class="btn sm" data-act="new-recipe">＋ Our recipe</button>
     </div>
   </section>
-  <div class="recipe-grid">${list.length ? list.map(r => card(r)).join('') : '<div class="empty"><span>🍽️</span><p>No recipes match.</p></div>'}</div>`;
+  <div class="recipe-grid">${list.length ? list.map(r => recipeCard(r)).join('') : '<div class="empty"><span>🍽️</span><p>No recipes match.</p></div>'}</div>
+  ${discoverCard()}`;
 }
-function openRecipe(id) {
-  const r = recipeById(id); if (!r) return;
+function prepCard() {
+  const plan = prepPlan();
+  const recs = plan.recipes.map(recipeById).filter(Boolean);
+  if (!recs.length) return prefs.mealPrepOnly ? `<section class="card pad prep-plan"><div class="sec-head"><h2>📦 Sunday meal prep</h2></div><p class="muted tiny">Open any 📦 recipe and tap <b>Add to prep plan</b>. Pick 2–4 and this builds one shopping list and a game plan.</p></section>` : '';
+  const portions = recs.reduce((n, r) => n + (Number(r.serves) || 4), 0);
+  const ings = [...new Set(recs.flatMap(r => r.ingredients || []))];
+  const slow = recs.filter(r => /slow cooker/i.test((r.cook || '') + (r.tags || []).join(' ')));
+  const oven = recs.filter(r => /oven|bake|roast/i.test((r.steps || []).join(' ')) && !slow.includes(r));
+  const rest = recs.filter(r => !slow.includes(r) && !oven.includes(r));
+  const steps = [
+    slow.length && `Start the slow cooker first: ${slow.map(r => r.name).join(', ')}.`,
+    oven.length && `Heat the oven and get these in: ${oven.map(r => r.name).join(', ')}.`,
+    'While things cook: boil rice/pasta and chop all the veg at once.',
+    rest.length && `Stovetop & assembly: ${rest.map(r => r.name).join(', ')}.`,
+    'Cool 20–30 minutes, then portion into containers. Label with the name and date.',
+    'Fridge what you\'ll eat in 3–4 days; freeze the rest.',
+  ].filter(Boolean);
+  return `<section class="card pad prep-plan">
+    <div class="sec-head"><h2>📦 Sunday meal prep</h2><span class="muted tiny">${recs.length} recipe${recs.length > 1 ? 's' : ''} · about ${portions} portions</span></div>
+    <div class="chips">${recs.map(r => `<span class="chip on prep-chip">${r.emoji || '🍲'} ${esc(r.name)} <button class="linkish" data-act="prep-remove" data-id="${r.id}" aria-label="Remove ${esc(r.name)}">✕</button></span>`).join('')}</div>
+    <div class="r-cols prep-cols">
+      <section><h3>🛒 One shopping list</h3><ul class="ingredients prep-ings">${ings.map((ing, i) => `<li><label><input type="checkbox" checked data-ing="${i}"/> <span>${esc(ing)}</span></label></li>`).join('')}</ul>
+        <button class="btn sm primary" data-act="prep-groceries">🛒 Add checked to groceries</button></section>
+      <section><h3>🧭 Game plan</h3><ol class="steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+        <h3 class="mt">🧊 Storage</h3><ul class="store-list">${recs.map(r => `<li><b>${esc(r.name)}</b> — ${esc(r.prep ? [r.prep.keeps, r.prep.freezer && 'freezer ' + r.prep.freezer].filter(Boolean).join(' · ') : '3–4 days fridge')}</li>`).join('')}</ul></section>
+    </div>
+  </section>`;
+}
+
+/* ---- Discover: fresh recipes from TheMealDB (free recipe library) ---- */
+const MEALDB = 'https://www.themealdb.com/api/json/v1/1/';
+const AREA = { canadian: 'Canadian', american: 'American', thai: 'Thai', chinese: 'Chinese', japanese: 'Japanese', italian: 'Italian', mexican: 'Mexican' };
+const discover = { area: 'canadian', list: null, loading: false, error: '', cache: {} };
+function discoverCard() {
+  return `<section class="card pad discover">
+    <div class="sec-head"><div><h2>🌍 Discover new recipes</h2><p class="muted tiny">Pulls fresh ideas from a free online recipe library — different every time. Not picky-tested, so check the spice.</p></div>
+      <div class="row wrap"><select class="select sm" data-change="discover-area" aria-label="Cuisine">${CUISINES.map(c => `<option value="${c.id}" ${discover.area === c.id ? 'selected' : ''}>${c.flag} ${c.name}</option>`).join('')}</select><button class="btn sm primary" data-act="discover-load">${discover.list ? '🔄 More' : 'Show ideas'}</button></div></div>
+    ${discover.loading ? '<p class="muted">Loading…</p>' : discover.error ? `<p class="muted">${esc(discover.error)}</p>` : discover.list ? `<div class="discover-grid">${discover.list.map(m => `<button class="disc-card" data-act="discover-open" data-id="${esc(m.id)}"><img src="${esc(m.thumb)}/preview" alt="" loading="lazy"/><span>${esc(m.name)}</span></button>`).join('')}</div>` : ''}
+  </section>`;
+}
+async function loadDiscover() {
+  discover.loading = true; discover.error = ''; renderPage();
+  try {
+    const res = await fetch(MEALDB + 'filter.php?a=' + encodeURIComponent(AREA[discover.area]));
+    const meals = (await res.json()).meals || [];
+    for (let i = meals.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [meals[i], meals[j]] = [meals[j], meals[i]]; }
+    discover.list = meals.slice(0, 8).map(m => ({ id: String(m.idMeal), name: m.strMeal, thumb: m.strMealThumb }));
+    if (!discover.list.length) discover.error = 'No recipes found for that cuisine right now.';
+  } catch { discover.error = "Couldn't reach the online recipe library. Check your connection and try again."; }
+  discover.loading = false; renderPage();
+}
+function fromMealDB(m) {
+  const ingredients = [];
+  for (let i = 1; i <= 20; i++) { const ing = (m['strIngredient' + i] || '').trim(); if (ing) ingredients.push([(m['strMeasure' + i] || '').trim(), ing].filter(Boolean).join(' ')); }
+  const steps = String(m.strInstructions || '').split(/\r?\n+/).map(s => s.replace(/^(step\s*\d+[:.)]?|\d+[.)])\s*/i, '').trim()).filter(s => s.length > 3);
+  const area = Object.keys(AREA).find(k => AREA[k] === m.strArea) || 'family';
+  const cat = m.strCategory || '';
+  return { id: 'mdb_' + m.idMeal, name: m.strMeal, cuisine: area, meal: cat === 'Breakfast' ? 'Breakfast' : cat === 'Dessert' ? 'Snack' : 'Dinner',
+    emoji: { Beef: '🥩', Chicken: '🍗', Dessert: '🍰', Lamb: '🍖', Pasta: '🍝', Pork: '🥓', Seafood: '🐟', Vegetarian: '🥦', Vegan: '🥗', Breakfast: '🍳', Side: '🥗', Starter: '🥟', Goat: '🍖' }[cat] || '🍲',
+    time: 0, level: '', tags: [cat, 'online'].filter(Boolean), ingredients, steps, picky: [], image: m.strMealThumb || '', source: m.strSource || m.strYoutube || '', online: true };
+}
+async function openDiscover(id) {
+  if (!discover.cache[id]) {
+    toast('Loading recipe…');
+    try { const m = (await (await fetch(MEALDB + 'lookup.php?i=' + encodeURIComponent(id))).json()).meals?.[0]; if (!m) throw 0; discover.cache[id] = fromMealDB(m); }
+    catch { return toast("Couldn't load that recipe"); }
+  }
+  openRecipe(discover.cache[id]);
+}
+function openRecipe(idOrRecipe) {
+  const r = typeof idOrRecipe === 'object' ? idOrRecipe : recipeById(idOrRecipe); if (!r) return;
+  const id = r.id;
+  const saved = !!store.get(id);
   const m = recipeMeta(id);
+  const inPrep = prepPlan().recipes.includes(id);
   openModal(`
   <div class="recipe">
-    <div class="modal-head"><div class="r-title"><span class="r-emoji">${r.emoji || '🍲'}</span><div><h2>${esc(r.name)}</h2><p class="muted tiny">${cuisineFlag(r.cuisine)} ${esc(cuisineName(r.cuisine))} · ${esc(r.meal || '')} · ⏱ ${r.time || '?'} min${r.cook ? ' + ' + esc(r.cook) : ''} · ${esc(r.level || '')}${r.serves ? ` · serves ${r.serves}` : ''}</p></div></div><button class="icon-btn" data-act="close" aria-label="Close">✕</button></div>
+    <div class="modal-head"><div class="r-title">${r.image ? `<img class="r-thumb" src="${esc(r.image)}/preview" alt=""/>` : `<span class="r-emoji">${r.emoji || '🍲'}</span>`}<div><h2>${esc(r.name)}</h2><p class="muted tiny">${cuisineFlag(r.cuisine)} ${esc(cuisineName(r.cuisine))} · ${esc(r.meal || '')}${r.time ? ` · ⏱ ${r.time} min` : ''}${r.cook ? ' + ' + esc(r.cook) : ''}${r.level ? ' · ' + esc(r.level) : ''}${r.serves ? ` · serves ${r.serves}` : ''}</p></div></div><button class="icon-btn" data-act="close" aria-label="Close">✕</button></div>
     <div class="modal-body">
-      ${r.tags?.length ? `<div class="tags">${r.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-      <div class="likes-row"><span class="label">Who likes it?</span><div class="chips">${people().map(p => `<button class="chip person ${(m.likes || []).includes(p.id) ? 'on' : ''}" data-act="like" data-id="${id}" data-p="${p.id}" style="--pc:${p.color}">👍 ${esc(p.name)}</button>`).join('')}</div></div>
+      ${r.healthy || r.prep || r.tags?.length ? `<div class="tags">${r.healthy ? '<span class="badge healthy">🥗 Healthy</span>' : ''}${r.prep ? '<span class="badge prep">📦 Meal prep</span>' : ''}${(r.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      ${r.online && !saved ? '<div class="note-box">🌍 From the online library — tap <b>Save to our recipes</b> to keep it and plan it.</div>' : ''}
+      ${r.prep ? `<div class="prep-box"><b>📦 Meal prep</b>${r.prep.makes ? `<span>Makes: ${esc(r.prep.makes)}</span>` : ''}${r.prep.keeps ? `<span>Keeps: ${esc(r.prep.keeps)}</span>` : ''}${r.prep.freezer ? `<span>Freezer: ${esc(r.prep.freezer)}</span>` : ''}${r.prep.reheat ? `<span>Reheat: ${esc(r.prep.reheat)}</span>` : ''}</div>` : ''}
+      ${!r.online || saved ? `<div class="likes-row"><span class="label">Who likes it?</span><div class="chips">${people().map(p => `<button class="chip person ${(m.likes || []).includes(p.id) ? 'on' : ''}" data-act="like" data-id="${id}" data-p="${p.id}" style="--pc:${p.color}">👍 ${esc(p.name)}</button>`).join('')}</div></div>` : ''}
       <div class="r-cols">
         <section><h3>🧺 Ingredients</h3>
           <ul class="ingredients">${(r.ingredients || []).map((ing, i) => `<li><label><input type="checkbox" checked data-ing="${i}"/> <span>${esc(ing)}</span></label></li>`).join('')}</ul>
           <button class="btn sm primary" data-act="add-ings" data-id="${id}">🛒 Add checked to groceries</button>
         </section>
-        <section><h3>👩‍🍳 Steps</h3><ol class="steps">${(r.steps || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol></section>
+        <section><h3>👩‍🍳 Steps</h3><ol class="steps">${(r.steps || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>${r.source ? `<p class="tiny"><a href="${esc(r.source)}" target="_blank" rel="noopener">Original recipe ↗</a></p>` : ''}</section>
       </div>
       ${r.picky?.length ? `<section class="picky"><h3>🧒 Picky-eater tricks</h3><ul>${r.picky.map(s => `<li>${esc(s)}</li>`).join('')}</ul></section>` : ''}
       ${r.grownUp ? `<section class="grownup"><h3>🌶️ Make it grown-up</h3><p>${esc(r.grownUp)}</p></section>` : ''}
     </div>
     <div class="modal-foot">
-      ${r.custom ? `<button class="btn ghost danger" data-act="del-recipe" data-id="${id}">Delete</button><button class="btn ghost" data-act="edit-recipe" data-id="${id}">Edit</button>` : '<span></span>'}
-      <div class="row"><input class="input sm" type="date" id="plan-date" value="${L.today()}" aria-label="Plan date"/><button class="btn primary" data-act="plan-recipe" data-id="${id}">Plan dinner</button></div>
+      ${r.online && !saved ? `<button class="btn" data-act="discover-save" data-id="${id}">💾 Save to our recipes</button>`
+        : `<div class="row wrap">${r.custom ? `<button class="btn ghost danger" data-act="del-recipe" data-id="${id}">Delete</button><button class="btn ghost" data-act="edit-recipe" data-id="${id}">Edit</button>` : ''}<button class="btn ghost" data-act="prep-toggle" data-id="${id}">${inPrep ? '✓ In prep plan' : '📦 Add to prep plan'}</button></div>
+      <div class="row"><input class="input sm" type="date" id="plan-date" value="${L.today()}" aria-label="Plan date"/><button class="btn primary" data-act="plan-recipe" data-id="${id}">Plan dinner</button></div>`}
     </div>
   </div>`, { wide: true });
 }
@@ -1083,11 +1297,12 @@ function viewPerson(id) {
   return `
   <section class="person-hero" style="--pc:${p.color};--pi:${L.ink(p.color)}">
     ${avatar(p, 'xl')}
-    <div><h1>${esc(p.name)}</h1><p>${weekOcc.length} activit${weekOcc.length === 1 ? 'y' : 'ies'} this week${needs.length ? ` · ${needs.length} need${needs.length > 1 ? 's' : ''}` : ''}</p>
+    <div><h1>${esc(p.name)}</h1><p>${weekOcc.length} activit${weekOcc.length === 1 ? 'y' : 'ies'} this week${needs.length ? ` · ${needs.length} need${needs.length > 1 ? 's' : ''}` : ''}${starsFor(p.id) ? ` · ⭐ ${starsFor(p.id)} checklist star${starsFor(p.id) > 1 ? 's' : ''}` : ''}</p>
       <div class="mix light">${Object.entries(mix).map(([c, n]) => `<span>${L.catById(c).icon} ${n}</span>`).join('')}</div></div>
     <div class="ph-actions"><button class="btn" data-act="new-event" data-person="${p.id}">＋ Event for ${esc(p.name)}</button><button class="btn" data-act="person-cal" data-id="${p.id}">📅 ${esc(p.name)}'s calendar</button></div>
   </section>
   <div class="dash">
+    ${checklistCard(p.id)}
     <section class="card pad d-upcoming wide2"><div class="sec-head"><h2>Next 3 weeks</h2></div>
       ${Object.keys(groups).length ? Object.keys(groups).sort().map(d => `<div class="day-group"><div class="dg-head"><b>${esc(L.relDay(d))}</b><span class="muted tiny">${L.fmtDate(d, { month: 'short', day: 'numeric' })}</span></div>${groups[d].map(o => evRow(o, { compact: true })).join('')}</div>`).join('') : '<p class="muted">Nothing scheduled.</p>'}
     </section>
@@ -1105,6 +1320,72 @@ function viewPerson(id) {
   </div>`;
 }
 
+/* =====================================================================
+   Checklist editor + notification settings
+   ===================================================================== */
+function routineForm(rt = null, personId = '') {
+  const isNew = !rt;
+  rt = rt || { id: '', title: '', icon: '✅', time: '21:00', days: [], people: personId ? [personId] : (prefs.me ? [prefs.me] : []), remind: true, nag: 15, active: true };
+  openModal(`<form class="editor" data-submit="save-routine" data-id="${esc(rt.id)}">
+    <div class="modal-head"><h2>${isNew ? 'New checklist item' : 'Edit checklist item'}</h2><button type="button" class="icon-btn" data-act="close" aria-label="Close">✕</button></div>
+    <div class="modal-body">
+      ${isNew ? `<div class="field"><span class="label">Quick picks</span><div class="chips">${L.ROUTINE_TEMPLATES.map((tp, i) => `<button type="button" class="chip" data-act="routine-template" data-i="${i}">${tp.icon} ${esc(tp.title)}</button>`).join('')}</div></div>` : ''}
+      <div class="grid-icon"><label class="field"><span class="label">Icon</span><input class="input emoji-in" name="icon" value="${esc(rt.icon || '✅')}" maxlength="4"/></label>
+        <label class="field"><span class="label">What needs doing?</span><input class="input" name="title" value="${esc(rt.title)}" placeholder="Set coffee machine" required maxlength="60" ${isNew ? 'autofocus' : ''}/></label></div>
+      <div class="grid2"><label class="field"><span class="label">Time</span><input class="input" type="time" name="time" value="${esc(rt.time || '')}" step="300"/></label>
+        <label class="field"><span class="label">If not done, remind again</span><select class="select" name="nag">${[[0, 'No repeats'], [10, 'Every 10 min (×3)'], [15, 'Every 15 min (×3)'], [30, 'Every 30 min (×3)']].map(([v, l]) => `<option value="${v}" ${Number(rt.nag || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+      <div class="field"><span class="label">Days <small class="muted">(leave all off = every day)</small></span><div class="weekdays">${DAY_NAMES.map((n, i) => `<label class="wd-check"><input type="checkbox" name="days" value="${i}" ${(rt.days || []).includes(i) ? 'checked' : ''}/><span>${n[0]}</span></label>`).join('')}</div></div>
+      <div class="field"><span class="label">Whose job? <small class="muted">(none = anyone)</small></span><div class="chips">${people().map(p => `<label class="chip-check" style="--pc:${p.color}"><input type="checkbox" name="people" value="${p.id}" ${(rt.people || []).includes(p.id) ? 'checked' : ''}/><span><i class="dot"></i>${esc(p.name)}</span></label>`).join('')}</div></div>
+      <label class="toggle"><input type="checkbox" name="remind" ${rt.remind !== false ? 'checked' : ''}/><span></span>🔔 Send a reminder at this time</label>
+      <label class="toggle"><input type="checkbox" name="active" ${rt.active !== false ? 'checked' : ''}/><span></span>Active</label>
+    </div>
+    <div class="modal-foot">${isNew ? '<span></span>' : `<button type="button" class="btn ghost danger" data-act="del-routine" data-id="${esc(rt.id)}">Delete</button>`}<button class="btn primary">${isNew ? 'Add to checklist' : 'Save'}</button></div>
+  </form>`);
+}
+function notifyStatus() {
+  if (!store.isShared) return `<div class="note-box">🧪 Phone reminders need the shared Google setup. In preview mode you'll still see reminders while the app is open.</div>`;
+  if (store.remindersRunning === true) return `<p class="ok-line">✅ Reminder timer is running — checks every 5 minutes, even when every phone is closed.</p>`;
+  if (store.remindersRunning === false) return `<div class="warn-box">⚠️ Reminder timer is off. In Google Apps Script choose <b>setup</b> → <b>Run</b> once.</div>`;
+  return `<div class="warn-box">⚠️ To send phone reminders, paste the new <b>Code.gs</b> into your Google Apps Script, run <b>setup</b>, then Deploy → Manage deployments → New version. <a href="https://github.com/CHILLYCHILLY14/family-calendar/blob/main/SETUP.md#reminders--notifications" target="_blank" rel="noopener">How-to ↗</a></div>`;
+}
+function notificationsSection() {
+  const s = settings();
+  const perm = 'Notification' in window ? Notification.permission : 'unsupported';
+  return `<section class="card pad" id="notify-settings">
+    <div class="sec-head"><h2>🔔 Reminders & notifications</h2></div>
+    ${notifyStatus()}
+    <details class="how" ${people().some(p => p.notify?.ntfy) ? '' : 'open'}><summary>How to get reminders on your phone (free, 2 minutes)</summary>
+      <ol class="steps"><li>Install the free <b>ntfy</b> app — <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">iPhone</a> · <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">Android</a>.</li>
+      <li>Below, tap <b>🎲 Create</b> next to your name, then <b>📋 Copy</b>.</li>
+      <li>In ntfy tap <b>＋</b>, paste the topic name and <b>Subscribe</b>.</li>
+      <li>Tap <b>🔔 Test</b>. Checklist alerts have a <b>✓ Done</b> button right in the notification.</li></ol>
+      <p class="tiny muted">The topic name works like a password — keep it private. Email works too (optional).</p></details>
+    <div class="notify-grid">${s.people.map(p => { const n = p.notify || {}; const follow = n.follow && n.follow.length ? n.follow : [p.id]; return `
+      <div class="notify-person" style="--pc:${p.color}">
+        <div class="np-head">${avatar(p, 'sm')}<b>${esc(p.name)}</b><button class="btn sm" data-act="nt-test" data-id="${p.id}">🔔 Test</button></div>
+        <label class="field"><span class="label">📱 Phone topic (ntfy)</span><div class="row"><input class="input sm" value="${esc(n.ntfy || '')}" placeholder="familyhub-…" data-change="nt-field" data-id="${p.id}" data-k="ntfy" maxlength="64" autocomplete="off" spellcheck="false"/><button class="btn sm" data-act="nt-make" data-id="${p.id}" title="Create a private topic">🎲 Create</button><button class="btn sm" data-act="nt-copy" data-id="${p.id}" title="Copy">📋</button></div></label>
+        <label class="field"><span class="label">✉️ Email (optional)</span><input class="input sm" type="email" value="${esc(n.email || '')}" placeholder="name@example.com" data-change="nt-field" data-id="${p.id}" data-k="email" maxlength="120"/></label>
+        <div class="field"><span class="label">Send ${esc(p.name)} reminders for</span><div class="chips">${s.people.map(q => `<button class="chip person sm-chip ${follow.includes(q.id) ? 'on' : ''}" data-act="nt-follow" data-id="${p.id}" data-p="${q.id}" style="--pc:${q.color}">${esc(q.name)}</button>`).join('')}</div></div>
+        <div class="row wrap"><label class="toggle sm"><input type="checkbox" data-change="nt-summary" data-id="${p.id}" ${n.summary ? 'checked' : ''}/><span></span>☀️ Morning summary at</label><select class="select sm auto" data-change="nt-field" data-id="${p.id}" data-k="summaryTime">${['06:00', '06:30', '07:00', '07:30', '08:00'].map(t => `<option value="${t}" ${(n.summaryTime || '07:00') === t ? 'selected' : ''}>${L.fmtTime(t)}</option>`).join('')}</select></div>
+      </div>`; }).join('')}</div>
+    <div class="row wrap device-notify"><span>💻 This device: ${perm === 'granted' ? '✅ pop-up alerts on while the app is open' : perm === 'denied' ? '🚫 pop-ups blocked in browser settings' : perm === 'unsupported' ? 'pop-ups not supported here (use ntfy)' : 'pop-up alerts are off'}</span>${perm === 'default' ? '<button class="btn sm" data-act="allow-notify">Allow pop-ups</button>' : ''}</div>
+    <details class="adv"><summary>Advanced</summary><label class="field"><span class="label">ntfy server</span><input class="input sm" value="${esc(s.ntfyServer || 'https://ntfy.sh')}" data-change="ntfy-server"/></label></details>
+  </section>`;
+}
+function checklistSettings() {
+  const list = routines();
+  return `<section class="card pad">
+    <div class="sec-head"><h2>✅ Daily checklist</h2><button class="btn sm" data-act="new-routine">＋ Add</button></div>
+    ${list.length ? `<div class="checklist">${list.map(rt => `<div class="check-row ${rt.active === false ? 'off' : ''}"><span class="check-ico">${rt.icon || '✅'}</span><button class="check-main linkish" data-act="edit-routine" data-id="${rt.id}"><b>${esc(rt.title)}</b><small>${rt.time ? L.fmtTime(rt.time) : 'Any time'} · ${rt.days?.length ? rt.days.slice().sort().map(d => DAY_NAMES[d]).join(', ') : 'Every day'}${rt.people?.length ? ' · ' + esc(rt.people.map(id => personById(id)?.name).filter(Boolean).join(', ')) : ''}${rt.remind !== false ? ' · 🔔' : ''}${rt.nag ? ` · repeats every ${rt.nag} min` : ''}${rt.active === false ? ' · paused' : ''}</small></button><button class="btn sm ghost" data-act="edit-routine" data-id="${rt.id}">Edit</button></div>`).join('')}</div>` : '<p class="muted tiny">No checklist items yet.</p>'}
+  </section>`;
+}
+function updateNotify(personId, patch) {
+  const ps = structuredClone(settings().people);
+  const p = ps.find(x => x.id === personId); if (!p) return;
+  p.notify = { ...(p.notify || {}), ...patch };
+  let tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
+  saveSettings({ people: ps, ...(tz ? { timezone: tz } : {}) });
+}
 /* =====================================================================
    SETTINGS
    ===================================================================== */
@@ -1142,6 +1423,9 @@ function viewSettings() {
     <label class="toggle"><input type="checkbox" data-change="holidays" ${s.showHolidays ? 'checked' : ''}/><span></span>Show Ontario holidays & special days</label>
     <form class="field" data-submit="set-location"><span class="label">Weather location · now: ${esc(s.location?.name || '—')}</span><div class="row"><input class="input" name="q" placeholder="City (e.g. Ajax, Whitby, Toronto)"/><button class="btn">Set</button></div></form>
   </section>
+
+  ${checklistSettings()}
+  ${notificationsSection()}
 
   <section class="card pad">
     <div class="sec-head"><h2>🔄 Sharing & sync</h2></div>
@@ -1204,6 +1488,48 @@ function loadSample() {
    Actions (event delegation)
    ===================================================================== */
 const actions = {
+  // checklist
+  'routine-done': el => { const rt = store.get(el.dataset.id); if (!rt) return; const t = L.today(); markRoutine(rt, t, true); alerts = alerts.filter(a => !(a.kind === 'routine' && a.rt.id === rt.id)); renderAlerts(); toast(`${rt.icon || '✅'} ${rt.title} — done!`, () => markRoutine(rt, t, false)); renderPage(); renderDueBanner(); },
+  'routine-undo': el => { const rt = store.get(el.dataset.id); if (!rt) return; markRoutine(rt, L.today(), false); renderPage(); renderDueBanner(); },
+  'new-routine': el => routineForm(null, el.dataset.person || ''),
+  'edit-routine': el => { const rt = store.get(el.dataset.id); if (rt) routineForm(rt); },
+  'del-routine': el => { const prev = store.remove(el.dataset.id); closeModal(); renderPage(); renderDueBanner(); if (prev) toast('Checklist item deleted', () => store.put('routine', prev)); },
+  'routine-template': el => { const tp = L.ROUTINE_TEMPLATES[Number(el.dataset.i)]; const f = el.closest('form'); if (!tp || !f) return; f.elements.title.value = tp.title; f.elements.icon.value = tp.icon; f.elements.time.value = tp.time; $$('.chip[data-act="routine-template"]', f).forEach(c => c.classList.toggle('on', c === el)); },
+  'alert-done': el => { const r = alerts[Number(el.dataset.i)]; if (!r) return; markRoutine(r.rt, r.date, true); alerts.splice(Number(el.dataset.i), 1); renderAlerts(); toast(`${r.rt.title} — done!`); renderPage(); renderDueBanner(); },
+  'alert-open': el => { const r = alerts[Number(el.dataset.i)]; if (!r) return; alerts.splice(Number(el.dataset.i), 1); renderAlerts(); openEvent(r.o.ev.id, r.o.date); },
+  'alert-close': el => { alerts.splice(Number(el.dataset.i), 1); renderAlerts(); },
+  // notifications
+  'nt-make': el => { updateNotify(el.dataset.id, { ntfy: randomTopic() }); renderPage(); toast('Private topic created — tap 📋 to copy it into the ntfy app'); },
+  'nt-copy': el => { const t = personById(el.dataset.id)?.notify?.ntfy; if (!t) return toast('Create a topic first'); (navigator.clipboard?.writeText(t) || Promise.reject()).then(() => toast('Copied: ' + t)).catch(() => toast('Topic: ' + t)); },
+  'nt-follow': el => { const p = personById(el.dataset.id); if (!p) return; const cur = p.notify?.follow?.length ? [...p.notify.follow] : [p.id]; const q = el.dataset.p; let next = cur.includes(q) ? cur.filter(x => x !== q) : [...cur, q]; if (!next.length) next = [p.id]; updateNotify(p.id, { follow: next }); renderPage(); },
+  'nt-test': async el => {
+    const p = personById(el.dataset.id); const n = p?.notify || {};
+    if (!n.ntfy && !n.email) return toast('Add a phone topic or email for ' + (p?.name || 'them') + ' first');
+    el.disabled = true;
+    try {
+      if (store.isShared && store.token) {
+        await store.sync(true);
+        const res = await store.call({ action: 'testNotify', token: store.token, person: p.id, ...store.urls() });
+        if (res.ok) { store.remindersRunning = res.reminders; toast('Test sent — check the phone 📱'); renderPage(); return; }
+        if (res.error !== 'unknown_action') { toast('Test failed: ' + (res.message || res.error)); return; }
+      }
+      if (!n.ntfy) return toast('Email tests need the updated Google script');
+      const server = (settings().ntfyServer || 'https://ntfy.sh').replace(/\/$/, '');
+      const r = await fetch(`${server}/${encodeURIComponent(n.ntfy)}`, { method: 'POST', body: `Reminders are working for ${p.name}!`, headers: { Title: 'Family Hub test', Tags: 'bell' } });
+      toast(r.ok ? (store.isShared ? 'Test sent from this device. Update the Google script for automatic reminders.' : 'Test sent — check the phone 📱') : 'ntfy said no — check the topic name');
+    } catch { toast("Couldn't reach ntfy — check your connection"); }
+    finally { el.disabled = false; }
+  },
+  'allow-notify': async () => { try { await Notification.requestPermission(); } catch { /* ignore */ } renderPage(); },
+  // meals extras
+  'new-picks': () => { const t = L.today(); prefs.pickShuffle = { date: t, n: (prefs.pickShuffle?.date === t ? prefs.pickShuffle.n : 0) + 1 }; savePrefs(); renderPage(); },
+  'meal-toggle': el => { prefs[el.dataset.k] = !prefs[el.dataset.k]; savePrefs(); renderPage(); },
+  'prep-toggle': el => { const plan = prepPlan(); const id = el.dataset.id; const on = plan.recipes.includes(id); if (!on && plan.recipes.length >= 5) return toast('Prep plans work best with 5 or fewer recipes'); store.put('prepplan', { ...plan, recipes: on ? plan.recipes.filter(x => x !== id) : [...plan.recipes, id] }); el.textContent = on ? '📦 Add to prep plan' : '✓ In prep plan'; toast(on ? 'Removed from prep plan' : 'Added to Sunday prep plan'); pendingRender = true; },
+  'prep-remove': el => { const plan = prepPlan(); store.put('prepplan', { ...plan, recipes: plan.recipes.filter(x => x !== el.dataset.id) }); renderPage(); },
+  'prep-groceries': () => { const items = $$('.prep-ings input:checked').map(i => i.closest('label').querySelector('span').textContent.trim()); items.forEach(text => addNeed({ text, list: 'groceries' })); toast(`Added ${items.length} item${items.length === 1 ? '' : 's'} to groceries`); },
+  'discover-load': () => loadDiscover(),
+  'discover-open': el => openDiscover(el.dataset.id),
+  'discover-save': el => { const r = Object.values(discover.cache).find(x => x.id === el.dataset.id); if (!r) return; const { custom, ...clean } = r; store.put('recipe', { ...clean, by: me()?.name || '' }); toast('Saved to our recipes'); openRecipe(r.id); pendingRender = true; },
   close: () => closeModal(),
   overlay: (el, e) => { if (e.target === el) closeModal(); },
   undo: () => { const u = toast.undo; toast.undo = null; $('#toast').className = ''; if (u) { u(); renderPage(); } },
@@ -1246,7 +1572,7 @@ const actions = {
     if (navigator.share) navigator.share({ text }).catch(() => {}); else navigator.clipboard?.writeText(text).then(() => toast('Copied to clipboard'));
   },
   // editor
-  'ed-cat': el => { const prev = L.catById(draft.ev.category); const next = L.catById(el.dataset.id); if (!draft.ev.bring || draft.ev.bring === prev.bring) draft.ev.bring = next.bring; if (!draft.ev.title || draft.ev.title === prev.name) draft.ev.title = ''; draft.ev.category = next.id; if (next.id === 'birthday' && draft.isNew) { draft.ev.allDay = true; draft.ev.repeat = { freq: 'yearly', interval: 1 }; } refreshEditor(); },
+  'ed-cat': el => { const prev = L.catById(draft.ev.category); const next = L.catById(el.dataset.id); if (!draft.ev.bring || draft.ev.bring === prev.bring) draft.ev.bring = next.bring; if (!draft.ev.title || draft.ev.title === prev.name) draft.ev.title = ''; draft.ev.category = next.id; if (next.id === 'birthday' && draft.isNew) { draft.ev.allDay = true; draft.ev.repeat = { freq: 'yearly', interval: 1 }; } if (draft.isNew && !draft.remindTouched) draft.ev.remind = draft.ev.allDay ? (next.id === 'birthday' ? '-480' : '') : L.defaultRemind(next.id); refreshEditor(); },
   'ed-who': el => { const id = el.dataset.id; const ev = draft.ev; if (!id) ev.people = []; else ev.people = ev.people.includes(id) ? ev.people.filter(x => x !== id) : [...ev.people, id]; if (ev.people.length >= people().length) ev.people = []; refreshEditor(); },
   'ed-wd': el => { const r = draft.ev.repeat; const d = Number(el.dataset.d); const days = r.days && r.days.length ? [...r.days] : [L.dow(draft.ev.date)]; r.days = days.includes(d) ? days.filter(x => x !== d) : [...days, d]; if (!r.days.length) r.days = [d]; refreshEditor(); },
   'del-event': () => deleteEvent(),
@@ -1279,7 +1605,7 @@ const actions = {
   'meal-fav': () => { prefs.mealFav = !prefs.mealFav; savePrefs(); renderPage(); },
   like: el => { const m = recipeMeta(el.dataset.id); const p = el.dataset.p; const likes = (m.likes || []).includes(p) ? m.likes.filter(x => x !== p) : [...(m.likes || []), p]; store.put('recipeMeta', { ...m, likes }); el.classList.toggle('on'); },
   'add-ings': el => { const r = recipeById(el.dataset.id); const idx = $$('.ingredients input:checked').map(i => Number(i.dataset.ing)); idx.forEach(i => addNeed({ text: r.ingredients[i], list: 'groceries' })); toast(`Added ${idx.length} item${idx.length === 1 ? '' : 's'} to groceries`); },
-  'plan-recipe': el => { const d = $('#plan-date')?.value || L.today(); store.put('mealplan', { id: 'mp_' + d, date: d, recipeId: el.dataset.id }); closeModal(); toast(`Planned for ${L.relDay(d)}`); renderPage(); },
+  'plan-recipe': el => { const d = $('#plan-date')?.value || L.today(); store.put('mealplan', { id: 'mp_' + d, date: d, recipeId: el.dataset.id, recipeName: recipeById(el.dataset.id)?.name || '' }); closeModal(); toast(`Planned for ${L.relDay(d)}`); renderPage(); },
   'plan-day': el => planDay(el.dataset.date),
   'clear-plan': el => { store.remove('mp_' + el.dataset.date); closeModal(); renderPage(); },
   'new-recipe': () => recipeForm(),
@@ -1300,12 +1626,16 @@ const actions = {
 };
 
 const changes = {
+  'nt-field': el => { const k = el.dataset.k; const v = el.value.trim(); if (k === 'ntfy' && v && !/^[A-Za-z0-9_-]{1,64}$/.test(v)) return toast('Topic names can only use letters, numbers, - and _'); updateNotify(el.dataset.id, { [k]: v }); toast('Saved'); },
+  'nt-summary': el => { const p = personById(el.dataset.id); updateNotify(el.dataset.id, { summary: el.checked, summaryTime: p?.notify?.summaryTime || '07:00' }); toast(el.checked ? 'Morning summary on' : 'Morning summary off'); },
+  'ntfy-server': el => { const v = el.value.trim().replace(/\/$/, ''); if (v && !/^https:\/\//.test(v)) return toast('Use an https:// address'); saveSettings({ ntfyServer: v || 'https://ntfy.sh' }); toast('Saved'); },
+  'discover-area': el => { discover.area = el.value; discover.list = null; loadDiscover(); },
   'filter-cat': el => { prefs.cat = el.value; savePrefs(); renderPage(); },
   split: el => { prefs.split = el.checked; savePrefs(); renderPage(); },
-  'ed-field': el => { if (el.dataset.field === 'endDate' && draft.onlyThis) { draft.onlyEndDate = el.value; return; } draft.ev[el.dataset.field] = el.value; if (['dropoff', 'pickup'].includes(el.dataset.field)) return; if (el.dataset.field === 'end') refreshEditor(); },
+  'ed-field': el => { if (el.dataset.field === 'endDate' && draft.onlyThis) { draft.onlyEndDate = el.value; return; } draft.ev[el.dataset.field] = el.value; if (el.dataset.field === 'remind') draft.remindTouched = true; if (['dropoff', 'pickup', 'remind'].includes(el.dataset.field)) return; if (el.dataset.field === 'end') refreshEditor(); },
   'ed-date': el => { if (!el.value) return; if (draft.onlyThis) { if (draft.onlyEndDate) draft.onlyEndDate = L.addDays(el.value, L.diffDays(draft.onlyDate, draft.onlyEndDate)); draft.onlyDate = el.value; } else { const ev = draft.ev; if (ev.endDate) ev.endDate = L.addDays(el.value, L.diffDays(ev.date, ev.endDate)); ev.date = el.value; if (ev.repeat?.freq === 'weekly' && ev.repeat.days?.length === 1) ev.repeat.days = [L.dow(el.value)]; } refreshEditor(); },
   'ed-start': el => { const ev = draft.ev; const dur = (L.toMin(ev.end) ?? L.toMin(ev.start) + 60) - (L.toMin(ev.start) ?? 0); ev.start = el.value; if (el.value) ev.end = L.fromMin(Math.min(1439, L.toMin(el.value) + (dur > 0 ? dur : 60))); refreshEditor(); },
-  'ed-allday': el => { draft.ev.allDay = el.checked; if (!el.checked && !draft.ev.start) { draft.ev.start = '18:00'; draft.ev.end = '19:00'; } refreshEditor(); },
+  'ed-allday': el => { const ev = draft.ev; ev.allDay = el.checked; if (!el.checked && !ev.start) { ev.start = '18:00'; ev.end = '19:00'; } if (ev.remind !== '' && ev.remind != null) { const opts = (ev.allDay ? L.REMIND_ALLDAY : L.REMIND_TIMED).map(o => o[0]); if (!opts.includes(String(ev.remind))) ev.remind = ev.allDay ? '-480' : '30'; } refreshEditor(); },
   'ed-freq': el => { draft.ev.repeat = { ...(draft.ev.repeat || {}), freq: el.value, interval: draft.ev.repeat?.interval || 1, days: el.value === 'weekly' ? [L.dow(draft.ev.date)] : [] }; refreshEditor(); },
   'ed-interval': el => { draft.ev.repeat.interval = Number(el.value); },
   'ed-until': el => { draft.ev.repeat.until = el.value; },
@@ -1330,6 +1660,12 @@ const inputs = {
   'meal-search': el => { prefs.mealSearch = el.value; clearTimeout(inputs.t); inputs.t = setTimeout(() => { savePrefs(); const pos = el.selectionStart; renderPage(); const n = $('[data-input="meal-search"]'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 250); },
 };
 const submits = {
+  'save-routine': (f) => {
+    const fd = new FormData(f); const prev = f.dataset.id ? store.get(f.dataset.id) : null;
+    const title = String(fd.get('title') || '').trim(); if (!title) return toast('Give it a name');
+    store.put('routine', { ...(prev || {}), id: f.dataset.id || '', title, icon: String(fd.get('icon') || '').trim() || '✅', time: String(fd.get('time') || ''), days: fd.getAll('days').map(Number), people: fd.getAll('people').map(String), remind: fd.get('remind') === 'on', nag: Number(fd.get('nag')) || 0, active: fd.get('active') === 'on' });
+    closeModal(); toast(prev ? 'Saved' : 'Added to the checklist'); renderPage(); renderDueBanner();
+  },
   unlock: () => doUnlock(),
   'preview-pin': (f) => { const pin = String(new FormData(f).get('pin') || ''); if (!/^\d{3,12}$/.test(pin)) return toast('3–12 digits please'); store.setPreviewPin(pin); closeModal(); toast('Preview PIN changed'); },
   'save-event': () => saveEvent(),
@@ -1338,7 +1674,7 @@ const submits = {
   'person-need': (f) => { const fd = new FormData(f); const text = String(fd.get('text') || ''); const list = /shirt|pant|jacket|shoe|sock|coat|boot|hat|mitt|glove|dress|short|hoodie|clothes/i.test(text) ? 'clothes' : /cleat|pad|stick|glove|bat|helmet|jersey|ball/i.test(text) ? 'sports' : 'other'; if (addNeed({ text, list, forP: f.dataset.id })) { toast('Added'); renderPage(); } },
   'save-need': (f) => { const fd = new FormData(f); const n = store.get(f.dataset.id); if (!n) return closeModal(); store.put('need', { ...n, text: String(fd.get('text')).trim(), qty: String(fd.get('qty')).trim(), list: fd.get('list'), for: fd.get('for'), note: String(fd.get('note')).trim() }); closeModal(); renderPage(); },
   'save-note': (f) => { const text = String(new FormData(f).get('text') || '').trim(); if (!text) return; store.put('note', { id: '', text, by: prefs.me, at: Date.now(), pinned: false }); closeModal(); renderPage(); },
-  'save-plan': (f) => { const fd = new FormData(f); const d = f.dataset.date; const recipeId = fd.get('recipe'); const text = String(fd.get('text') || '').trim(); if (!recipeId && !text) store.remove('mp_' + d); else store.put('mealplan', { id: 'mp_' + d, date: d, recipeId, text: recipeId ? '' : text }); closeModal(); renderPage(); },
+  'save-plan': (f) => { const fd = new FormData(f); const d = f.dataset.date; const recipeId = fd.get('recipe'); const text = String(fd.get('text') || '').trim(); if (!recipeId && !text) store.remove('mp_' + d); else store.put('mealplan', { id: 'mp_' + d, date: d, recipeId, recipeName: recipeId ? recipeById(recipeId)?.name || '' : '', text: recipeId ? '' : text }); closeModal(); renderPage(); },
   'save-recipe': (f) => { const fd = new FormData(f); const lines = k => String(fd.get(k) || '').split('\n').map(s => s.trim()).filter(Boolean); store.put('recipe', { id: f.dataset.id || '', name: String(fd.get('name')).trim(), emoji: String(fd.get('emoji')).trim() || '🍲', cuisine: fd.get('cuisine'), meal: fd.get('meal'), time: Number(fd.get('time')) || 30, level: 'Easy', ingredients: lines('ingredients'), steps: lines('steps'), picky: lines('picky'), by: me()?.name || '' }); closeModal(); toast('Recipe saved'); prefs.mealCuisine = 'all'; renderPage(); },
   'set-location': async (f) => {
     const q = String(new FormData(f).get('q') || '').trim(); if (!q) return;
@@ -1391,12 +1727,13 @@ document.addEventListener('keydown', e => {
    ===================================================================== */
 store.on(kind => {
   if (kind === 'storage') { renderSync(); return; }
-  if (kind === 'status') { renderSync(); return; }
+  if (kind === 'status') { renderSync(); if (store.status === 'idle') maybeSeedRoutines(); return; }
   if (kind === 'lock') { if (!document.body.classList.contains('locked')) { closeModal(true); renderLock(); } return; }
-  if (kind === 'remote') { renderShellState(); softRender(); }
-  if (kind === 'data') renderSync();
+  if (kind === 'remote') { renderShellState(); softRender(); renderDueBanner(); }
+  if (kind === 'data') { renderSync(); renderDueBanner(); }
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { store.sync(true); loadWeather(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { store.sync(true); loadWeather(); checkLocalReminders(); renderDueBanner(); } });
+setInterval(() => { checkLocalReminders(); renderDueBanner(); }, 30000);
 window.addEventListener('online', () => store.sync(true));
 let resizeT; let lastWide = isWide();
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (isWide() !== lastWide) { lastWide = isWide(); if (route().page === 'calendar') renderPage(); } }, 200); });
@@ -1406,9 +1743,12 @@ function boot() {
   applyTheme();
   if (!store.isUnlocked) { renderLock(); return; }
   renderShell();
+  maybeSeedRoutines();
   renderPage(true);
+  renderDueBanner();
   store.sync(true);
   loadWeather();
+  checkLocalReminders();
 }
 applyTheme();
 boot();

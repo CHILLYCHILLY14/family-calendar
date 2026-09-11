@@ -26,9 +26,15 @@ A shared family calendar and dashboard for **Kevin, Kate, Luke and Max** — hos
 - Tonight's dinner, needs summary, fridge notes, countdowns, this week's activity mix
 - Personal page for each family member: schedule, needs, clothing sizes, foods they like
 
+**Daily checklist & reminders**
+- Repeating jobs with a big ✓ Done button — starts with ☕ *Set coffee machine · 9pm*; ready-made items for lunches, garbage night, sports bags, lock-up and more
+- Due items show as a banner on every page until someone ticks them; ⭐ stars for whoever does them
+- Reminders on phones even when the app is closed (free ntfy push, with a **✓ Done** button inside the notification) or by email, plus an optional 7am summary of the whole day
+- Per-event reminders (1 hour before games by default), pop-ups while the app is open, and per-person control of whose reminders you receive
+
 **Needs & Lists** — Groceries, Clothes, School, Sports Gear, Household, Other; for-whom, quantity, "needed soon", check off, undo; shared clothing-size cards
 
-**Picky Eats** — 44 kid-friendly recipes across 🇨🇦 Canadian, 🇺🇸 American, 🇹🇭 Thai, 🇨🇳 Chinese, 🇯🇵 Japanese, 🇮🇹 Italian, 🇲🇽 Mexican, each with ingredients, steps, picky-eater tricks and a grown-up upgrade. Daily feed of new picks, weekly dinner planner, per-kid 👍 likes, one-tap "add ingredients to groceries", and your own family recipes.
+**Picky Eats** — 60 kid-friendly recipes across 🇨🇦 Canadian, 🇺🇸 American, 🇹🇭 Thai, 🇨🇳 Chinese, 🇯🇵 Japanese, 🇮🇹 Italian, 🇲🇽 Mexican, each with ingredients, steps, picky-eater tricks and a grown-up upgrade — including 🥗 healthy options and 📦 meal-prep batches with keeps/freezer/reheat notes. Daily feed that changes every day (🔄 for more), weekly dinner planner, Sunday prep-plan builder with one combined shopping list, per-kid 👍 likes, one-tap "add ingredients to groceries", your own recipes, and 🌍 Discover for endless fresh ideas from a free online library.
 
 **Themes** — Light, Dark, Maple (warm), Aurora (northern lights), or Auto.
 

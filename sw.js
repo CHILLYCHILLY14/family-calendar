@@ -1,6 +1,6 @@
 // Cache only this app: other GitHub Pages projects share this origin.
 const PREFIX = 'family-hub-';
-const CACHE = PREFIX + 'v2';
+const CACHE = PREFIX + 'v3';
 const SCOPE = new URL('./', self.location.href);
 const SHELL = ['./', './index.html', './styles.css?v=2', './app.js?v=2', './store.js', './lib.js', './meals.js', './config.js', './manifest.webmanifest', './assets/icons/icon-192.png', './assets/icons/icon-512.png', './assets/icons/apple-touch-icon.png'];
 
@@ -35,4 +35,14 @@ self.addEventListener('fetch', event => {
       return Response.error();
     }
   })());
+});
+
+// Tapping a reminder pop-up opens (or focuses) the family calendar.
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || SCOPE.href;
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const open = list.find(c => c.url.startsWith(SCOPE.href));
+    return open ? open.focus() : self.clients.openWindow(target);
+  }));
 });

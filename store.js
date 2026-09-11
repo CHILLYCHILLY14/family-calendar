@@ -56,6 +56,8 @@ export class Store {
     this.persist();
   }
   get isShared() { return !!this.apiUrl; }
+  // lets the server put working "Open" / "✓ Done" buttons on phone notifications
+  urls() { try { return { api: this.apiUrl, app: location.origin + location.pathname }; } catch { return {}; } }
   get isUnlocked() { return this.isShared ? !!this.token : this.previewUnlocked; }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -118,7 +120,7 @@ export class Store {
       return { ok: false, error: 'wrong_pin' };
     }
     const session = this.session;
-    const res = await this.call({ action: 'unlock', pin: String(pin) });
+    const res = await this.call({ action: 'unlock', pin: String(pin), ...this.urls() });
     if (session !== this.session) return { ok: false, error: 'cancelled' };
     if (res.ok && typeof res.token === 'string' && /^[a-f0-9]{64}$/.test(res.token)) {
       this.token = res.token; ls.set(K.token, res.token);
@@ -180,7 +182,8 @@ export class Store {
     const session = this.session;
     this.setStatus('syncing');
     const sent = this.pending.slice(0, 200);
-    const res = await this.call({ action: 'sync', token: this.token, since: this.since, by: this.by, ops: sent });
+    const res = await this.call({ action: 'sync', token: this.token, since: this.since, by: this.by, ops: sent, ...this.urls() });
+    if (res && typeof res.reminders === 'boolean') this.remindersRunning = res.reminders;
     if (session !== this.session) return; // Ignore a response from before locking/changing servers.
     if (!res.ok) {
       if (res.error === 'auth') { this.lock(); this.setStatus('auth', 'PIN changed — please unlock again'); return; }

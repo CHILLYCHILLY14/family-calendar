@@ -600,3 +600,84 @@ body.modal-open .main { overflow: hidden; }
   .input, .select { font-size: 1rem; }
   .nav-btn { font-size: .875rem; }
 }
+
+/* ==========================================================================
+   v3 — checklist, reminders, meal prep, discover
+   ========================================================================== */
+.due-banner { display: grid; gap: 6px; padding: 8px 14px; background: color-mix(in srgb, var(--accent) 14%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.due-banner[hidden] { display: none; }
+.due-item { display: flex; align-items: center; gap: 10px; animation: dueIn .3s ease; }
+.due-ico { font-size: 1.5rem; }
+.due-text { flex: 1; display: grid; line-height: 1.2; min-width: 0; }
+.due-text small { color: var(--muted); font-size: .78rem; }
+@keyframes dueIn { from { transform: translateY(-6px); opacity: 0; } }
+@media (min-width: 860px) { .due-banner { padding: 8px 26px; } }
+
+.checklist { display: grid; gap: 8px; }
+.check-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); }
+.check-row.due { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.check-row.done { background: color-mix(in srgb, var(--ok) 8%, var(--surface)); }
+.check-row.done .check-main b { text-decoration: line-through; color: var(--muted); }
+.check-row.off { opacity: .55; }
+.check-ico { font-size: 1.5rem; width: 36px; height: 36px; display: grid; place-items: center; background: var(--surface-2); border-radius: 11px; flex: none; }
+.check-main { flex: 1; display: grid; text-align: left; min-width: 0; cursor: pointer; line-height: 1.25; }
+.check-main small { color: var(--muted); font-size: .78rem; }
+.check-done { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: white; font-weight: 900; flex: none; }
+.due-tag { color: var(--accent); }
+.d-check { grid-column: 1 / -1; }
+@media (min-width: 1200px) { .d-check { grid-column: span 2; } }
+.pc-badges { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
+.pc-badges .pc-badge { position: static; }
+
+#alerts { position: fixed; bottom: calc(92px + env(safe-area-inset-bottom)); right: 12px; left: 12px; z-index: 90; display: grid; gap: 8px; justify-items: end; pointer-events: none; }
+.alert-card { pointer-events: auto; width: min(420px, 100%); display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 16px 40px -12px rgb(0 0 0 / .45); animation: dueIn .25s ease; }
+.alert-card > div { flex: 1; display: grid; min-width: 0; line-height: 1.25; }
+.alert-card small { color: var(--muted); font-size: .8rem; }
+.alert-card .bell { font-size: 1.4rem; animation: ring 1s ease 2; }
+@keyframes ring { 20%, 60% { transform: rotate(-15deg); } 40%, 80% { transform: rotate(15deg); } }
+
+.grid-icon { display: grid; grid-template-columns: 74px 1fr; gap: 10px; }
+.wd-check, .chip-check { position: relative; cursor: pointer; }
+.wd-check input, .chip-check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.wd-check span { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; border: 1.5px solid var(--line-strong); background: var(--surface); font-weight: 900; font-size: .82rem; }
+.wd-check input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip-check span { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; border-radius: 99px; border: 1.5px solid color-mix(in srgb, var(--pc) 45%, var(--line-strong)); background: var(--surface); font-weight: 800; font-size: .88rem; }
+.chip-check .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pc); }
+.chip-check input:checked + span { background: var(--pc); border-color: var(--pc); color: white; }
+.chip-check input:checked + span .dot { background: white; }
+.wd-check input:focus-visible + span, .chip-check input:focus-visible + span { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+
+.notify-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); margin: 12px 0; }
+.notify-person { padding: 12px; border-radius: 16px; border: 1px solid color-mix(in srgb, var(--pc) 35%, var(--line)); background: color-mix(in srgb, var(--pc) 6%, var(--surface)); }
+.notify-person .field { margin-top: 10px; }
+.notify-person .row .input { flex: 1; }
+.np-head { display: flex; align-items: center; gap: 8px; }
+.np-head .btn { margin-left: auto; }
+.chip.sm-chip { min-height: 30px; padding: 0 10px; font-size: .8rem; }
+.select.auto { width: auto; }
+.ok-line { font-weight: 800; color: var(--ok); margin: 6px 0; }
+.how { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.how summary { cursor: pointer; font-weight: 800; }
+.how .steps { margin-top: 8px; }
+.device-notify { font-size: .88rem; color: var(--muted); font-weight: 700; margin-top: 4px; }
+
+.rc-photo { width: 64px; height: 64px; border-radius: 14px; object-fit: cover; flex: none; background: var(--surface-2); }
+.recipe-card.big .rc-photo { width: 100%; height: 120px; }
+.rc-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.badge { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 99px; font-size: .7rem; font-weight: 800; }
+.badge.healthy { background: color-mix(in srgb, #16a34a 16%, transparent); color: color-mix(in srgb, #16a34a 75%, var(--text)); }
+.badge.prep { background: color-mix(in srgb, #7c3aed 16%, transparent); color: color-mix(in srgb, #7c3aed 75%, var(--text)); }
+.prep-box { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, #7c3aed 9%, var(--surface)); border: 1px solid color-mix(in srgb, #7c3aed 25%, var(--line)); margin-bottom: 12px; font-size: .88rem; }
+.prep-box b { width: 100%; }
+.prep-plan { background: linear-gradient(135deg, color-mix(in srgb, #7c3aed 10%, var(--surface)), var(--surface) 60%); }
+.prep-chip { gap: 8px; }
+.prep-chip button { color: inherit; font-weight: 900; }
+.prep-cols { margin-top: 14px; }
+.store-list { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .9rem; }
+h3.mt { margin-top: 14px; }
+.discover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.disc-card { display: grid; gap: 6px; padding: 0 0 10px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); text-align: left; box-shadow: var(--shadow); }
+.disc-card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: var(--surface-2); }
+.disc-card span { padding: 0 10px; font-weight: 800; font-size: .86rem; line-height: 1.2; }
+.r-thumb { width: 56px; height: 56px; border-radius: 14px; object-fit: cover; }
+@media (min-width: 860px) { #alerts { bottom: auto; top: 16px; left: auto; width: 420px; } }

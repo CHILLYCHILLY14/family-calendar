@@ -167,7 +167,7 @@ function workerHarness() {
   const context = {
     URL, Response,
     self: { location: { href: 'https://example.com/family-calendar/sw.js' }, addEventListener: (name, fn) => handlers[name] = fn, skipWaiting: async () => { activated = true; }, clients: { claim: async () => {} } },
-    caches: { open: async () => cache, keys: async () => ['family-hub-v1', 'family-hub-v2', 'mlb-edge-v1'], delete: async key => deleted.push(key) },
+    caches: { open: async () => cache, keys: async () => ['family-hub-v1', 'family-hub-v2', 'family-hub-v3', 'mlb-edge-v1'], delete: async key => deleted.push(key) },
     fetch: async () => { throw new Error('Offline'); },
   };
   vm.runInNewContext(fs.readFileSync(new URL('../sw.js', import.meta.url), 'utf8'), context);
@@ -176,7 +176,7 @@ function workerHarness() {
 await test('offline cache activation leaves other GitHub Pages apps alone', async () => {
   const worker = workerHarness(); let done;
   worker.handlers.activate({ waitUntil: promise => done = promise }); await done;
-  assert.deepEqual(worker.deleted, ['family-hub-v1']);
+  assert.deepEqual(worker.deleted, ['family-hub-v1', 'family-hub-v2']);
 });
 await test('worker ignores other project paths and only returns HTML for navigation', async () => {
   const worker = workerHarness(); let response;

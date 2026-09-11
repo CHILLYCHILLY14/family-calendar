@@ -11,7 +11,7 @@ export const CUISINES = [
 
 export const MEAL_TYPES = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 
-export const RECIPES = [
+const BASE = [
   // ---------------- CANADIAN ----------------
   { id: 'ca-mac', name: "Stovetop Cheddar Mac & Cheese", cuisine: 'canadian', meal: 'Dinner', emoji: '🧀', time: 20, level: 'Easy', serves: 4,
     tags: ['comfort', 'one-pot', 'no visible veg'],
@@ -291,9 +291,129 @@ export const RECIPES = [
     grownUp: "Add a pinch of chili-lime seasoning (Tajín) to the fruit." },
 ];
 
+
+// ---------------- HEALTHY + MEAL PREP ADDITIONS ----------------
+const MORE = [
+  { id: 'ca-oats', name: "Overnight Oats 3 Ways", cuisine: 'canadian', meal: 'Breakfast', emoji: '🥣', time: 10, level: 'Easy', serves: 5,
+    healthy: true, tags: ['no-cook', 'make-ahead', 'fibre'], prep: { makes: '5 jars', keeps: '4 days in the fridge', reheat: 'Eat cold, or microwave 1 min' },
+    ingredients: ["2½ cups large-flake oats", "2½ cups milk (any kind)", "1¼ cups plain or vanilla yogurt", "2 tbsp chia seeds", "2 tbsp maple syrup", "Toppings: blueberries + cinnamon · banana + sunflower butter · apple + maple"],
+    steps: ["Stir oats, milk, yogurt, chia and maple syrup together.", "Divide into 5 jars or containers.", "Top each with a flavour combo, lid, and refrigerate overnight.", "Grab-and-go breakfasts for the whole school week."],
+    picky: ["Let each kid pick their topping and write their name on the lid.", "Blend it smooth for texture-sensitive kids — it becomes a 'breakfast pudding'.", "Mini chocolate chips on top are a fine gateway."],
+    grownUp: "Add hemp hearts, nuts and a spoon of nut butter for more protein." },
+  { id: 'us-eggmuffins', name: "Egg Muffin Cups (Mini Frittatas)", cuisine: 'american', meal: 'Breakfast', emoji: '🧁', time: 30, level: 'Easy', serves: 12,
+    healthy: true, tags: ['high protein', 'freezer friendly', 'grab-and-go'], prep: { makes: '12 cups', keeps: '4 days fridge', freezer: '2 months', reheat: 'Microwave 30–45 sec' },
+    ingredients: ["10 eggs", "¼ cup milk", "1 cup shredded cheddar", "1 cup finely chopped veg (peppers, spinach, broccoli)", "½ cup diced ham or cooked turkey sausage", "½ tsp salt"],
+    steps: ["Heat oven to 350°F (175°C); grease or line a 12-cup muffin tin.", "Whisk eggs, milk and salt.", "Divide cheese, veg and ham among cups; pour egg over (¾ full).", "Bake 18–22 min until set in the centre. Cool, then refrigerate or freeze."],
+    picky: ["Make a few 'cheese only' cups — mark them with a ham piece on top.", "Chop veg tiny or blitz in a food processor so it's confetti."],
+    grownUp: "Add feta, sun-dried tomato and hot sauce." },
+  { id: 'mx-sweetpotato', name: "Sweet Potato & Black Bean Quesadillas", cuisine: 'mexican', meal: 'Lunch', emoji: '🍠', time: 25, level: 'Easy', serves: 6,
+    healthy: true, tags: ['vegetarian', 'freezer friendly', 'fibre'], prep: { makes: '6 quesadillas', keeps: '3 days fridge', freezer: '2 months', reheat: 'Dry pan 3 min per side, or 400°F oven 10 min' },
+    ingredients: ["1 large sweet potato, peeled and cubed", "1 can black beans, rinsed", "1 tsp cumin", "½ tsp garlic powder", "1½ cups shredded cheddar or Tex-Mex cheese", "6 large whole-wheat tortillas", "Salsa and plain yogurt to dip"],
+    steps: ["Microwave or boil sweet potato until very soft (8–10 min); mash.", "Mash in half the beans with cumin, garlic and a pinch of salt; stir in the rest.", "Spread on half of each tortilla, add cheese, fold.", "Cook in a dry pan 2–3 min per side until golden."],
+    picky: ["Mashed sweet potato tastes sweet and hides the beans.", "Serve with a yogurt 'sour cream' dip."],
+    grownUp: "Add chipotle, pickled onion and cilantro." },
+  { id: 'jp-salmonbowl', name: "Teriyaki Salmon Rice Bowls", cuisine: 'japanese', meal: 'Dinner', emoji: '🍣', time: 25, level: 'Easy', serves: 4,
+    healthy: true, tags: ['omega-3', 'bowl', 'quick'],
+    ingredients: ["4 salmon fillets (or 600 g salmon cubes)", "3 tbsp soy sauce (low sodium)", "2 tbsp honey", "1 tsp grated ginger", "Brown or white rice", "Cucumber, shredded carrot, edamame, avocado", "Sesame seeds"],
+    steps: ["Heat oven to 400°F (200°C). Mix soy, honey and ginger.", "Brush salmon with half the sauce; bake 10–12 min until it flakes.", "Brush with the rest, broil 1 min.", "Build bowls: rice, flaked salmon, veg piles, sesame seeds."],
+    picky: ["Flake the salmon into the rice with extra sauce — like 'sweet fish rice'.", "Veg in separate piles so kids choose.", "Cooked salmon only — no raw fish worries."],
+    grownUp: "Add sriracha mayo, pickled ginger and nori strips." },
+  { id: 'th-freshrolls', name: "Fresh Spring Rolls with Sweet Chili Dip", cuisine: 'thai', meal: 'Lunch', emoji: '🥢', time: 30, level: 'Medium', serves: 4,
+    healthy: true, tags: ['fresh', 'build-your-own', 'veggie-packed'],
+    ingredients: ["12 rice paper wrappers", "Cooked shrimp or shredded chicken", "Rice vermicelli, cooked and cooled", "Cucumber, carrot, red pepper — matchsticks", "Lettuce leaves", "Dip: sweet chili sauce + squeeze of lime (or sunflower butter dip)"],
+    steps: ["Set out fillings in bowls.", "Dip one rice paper in warm water 5–10 seconds; lay flat.", "Add lettuce, noodles, protein, veg; fold sides in and roll tightly.", "Serve with dip. Best eaten within a few hours."],
+    picky: ["Rolling your own = eating your own.", "See-through wrappers let kids see there's nothing 'weird' inside."],
+    grownUp: "Add mint, Thai basil and a spicy peanut-hoisin dip." },
+  { id: 'cn-stirfry', name: "Chicken & Rainbow Veggie Stir-Fry", cuisine: 'chinese', meal: 'Dinner', emoji: '🥕', time: 25, level: 'Easy', serves: 4,
+    healthy: true, tags: ['veggie-packed', 'high protein', 'one-pan'],
+    ingredients: ["500 g chicken breast, thin strips", "1 tbsp cornstarch", "4 cups mixed veg: broccoli, snap peas, carrot coins, red pepper", "1 tbsp oil", "Sauce: 3 tbsp low-sodium soy, 1 tbsp honey, 1 tsp sesame oil, 1 tsp cornstarch, ¼ cup water", "Brown rice"],
+    steps: ["Toss chicken with cornstarch; stir-fry in hot oil until cooked, remove.", "Stir-fry hard veg (carrot, broccoli) 3 min with 2 tbsp water, then peppers and peas 2 min.", "Return chicken, add sauce, toss until glossy.", "Serve over brown rice."],
+    picky: ["Count the colours — 'eat the rainbow' challenge with a sticker.", "Keep veg crisp-tender; mushy veg is the #1 turn-off."],
+    grownUp: "Add garlic, ginger and chili crisp." },
+  { id: 'it-minestrone', name: "Minestrone with Tiny Pasta", cuisine: 'italian', meal: 'Dinner', emoji: '🥣', time: 40, level: 'Easy', serves: 8,
+    healthy: true, tags: ['veggie-packed', 'freezer friendly', 'one-pot'], prep: { makes: '8 bowls', keeps: '4 days fridge', freezer: '3 months (freeze without pasta)', reheat: 'Stovetop with a splash of water' },
+    ingredients: ["2 tbsp olive oil", "1 onion, 2 carrots, 2 celery — finely diced", "1 zucchini, diced", "1 can (796 ml) diced tomatoes", "6 cups low-sodium broth", "1 can white kidney beans, rinsed", "1 cup tiny pasta (ditalini or stars)", "Parmesan to serve"],
+    steps: ["Soften onion, carrot and celery in oil 8 min.", "Add zucchini, tomatoes and broth; simmer 15 min.", "Add beans and pasta; simmer until pasta is tender (8–10 min).", "Season; top with parmesan."],
+    picky: ["Star-shaped pasta makes it 'star soup'.", "Blend half the soup smooth so veg pieces are fewer."],
+    grownUp: "Stir in pesto and chili flakes." },
+  { id: 'ca-sheetpan', name: "Sheet-Pan Maple Dijon Chicken & Veggies", cuisine: 'canadian', meal: 'Dinner', emoji: '🍁', time: 40, level: 'Easy', serves: 4,
+    healthy: true, tags: ['one-pan', 'high protein', 'meal prep'], prep: { makes: '4–5 containers', keeps: '4 days fridge', reheat: 'Microwave 2 min' },
+    ingredients: ["700 g boneless chicken thighs", "2 tbsp maple syrup", "2 tbsp Dijon mustard", "1 tbsp olive oil", "3 cups baby potatoes, halved", "2 cups broccoli florets", "2 carrots, sticks", "Salt"],
+    steps: ["Heat oven to 425°F (220°C).", "Toss potatoes and carrots with oil and salt; roast 15 min.", "Mix maple and Dijon; coat chicken. Add chicken and broccoli to the pan.", "Roast 20 min more until chicken is 165°F (74°C)."],
+    picky: ["Maple wins over mustard — it tastes sweet, not tangy.", "Roasted carrots get candy-sweet; call them 'carrot fries'."],
+    grownUp: "Add grainy mustard, garlic and rosemary." },
+  { id: 'us-parfait', name: "Build-Your-Own Yogurt Parfait Bar", cuisine: 'american', meal: 'Snack', emoji: '🍓', time: 10, level: 'Easy', serves: 4,
+    healthy: true, tags: ['no-cook', 'high protein', 'fruit'],
+    ingredients: ["3 cups plain or vanilla Greek yogurt", "2 cups berries and chopped fruit", "1 cup low-sugar granola or crushed cereal", "Honey or maple to drizzle", "Hemp hearts or ground flax (optional)"],
+    steps: ["Set out yogurt, fruit and crunchy toppings in bowls.", "Everyone layers their own in a clear cup.", "Drizzle a little honey on top."],
+    picky: ["Clear cups make it look like dessert.", "Freeze leftovers in popsicle moulds for 'yogurt pops'."],
+    grownUp: "Add nuts, seeds and a spoon of nut butter." },
+  { id: 'mx-tortillasoup', name: "Mild Chicken Tortilla Soup", cuisine: 'mexican', meal: 'Dinner', emoji: '🍲', time: 35, level: 'Easy', serves: 6,
+    healthy: true, tags: ['freezer friendly', 'one-pot'], prep: { makes: '6 bowls', keeps: '4 days fridge', freezer: '3 months', reheat: 'Stovetop until steaming' },
+    ingredients: ["500 g chicken breast", "1 onion, diced", "1 tsp cumin, 1 tsp paprika", "1 can (796 ml) diced tomatoes", "6 cups low-sodium chicken broth", "1 can black beans, rinsed", "1 cup corn", "Toppings: crushed tortilla chips, cheese, avocado, yogurt"],
+    steps: ["Soften onion with spices in a little oil.", "Add tomatoes, broth and whole chicken breasts; simmer 20 min.", "Remove chicken, shred, and return with beans and corn; simmer 5 min.", "Top bowls with chips and cheese."],
+    picky: ["Crunchy chip topping = kid magnet.", "Strain a bowl of just broth, chicken and corn for the pickiest."],
+    grownUp: "Add chipotle, lime and cilantro." },
+  { id: 'us-chili', name: "Slow-Cooker Turkey Chili (Mild)", cuisine: 'american', meal: 'Dinner', emoji: '🌶️', time: 20, cook: '6–8 hr slow cooker', level: 'Easy', serves: 8,
+    healthy: true, tags: ['slow cooker', 'freezer friendly', 'high protein', 'meal prep'], prep: { makes: '8 bowls', keeps: '4 days fridge', freezer: '3 months', reheat: 'Microwave 2–3 min, stir halfway' },
+    ingredients: ["700 g lean ground turkey", "1 onion, finely diced", "1 red pepper, finely diced", "2 cans kidney or black beans, rinsed", "1 can (796 ml) crushed tomatoes", "1 cup corn", "1 tbsp mild chili powder, 1 tsp cumin, 1 tsp garlic powder", "Cheese and plain yogurt to top"],
+    steps: ["Brown turkey with onion (optional but tastier).", "Add everything to the slow cooker.", "Cook LOW 6–8 hours or HIGH 3–4 hours.", "Portion leftovers into containers for lunches."],
+    picky: ["Serve over rice or on a baked potato so it's familiar.", "Lots of cheese on top — then 'chili nachos' with tortilla chips."],
+    grownUp: "Add chipotle, jalapeño and hot sauce." },
+  { id: 'it-pastajars', name: "Pasta Salad Lunch Jars", cuisine: 'italian', meal: 'Lunch', emoji: '🥗', time: 20, level: 'Easy', serves: 5,
+    healthy: true, tags: ['lunchbox', 'no reheat', 'meal prep'], prep: { makes: '5 lunches', keeps: '4 days fridge', reheat: 'Eat cold' },
+    ingredients: ["350 g rotini (whole-wheat if you like)", "1 cup cherry tomatoes, halved", "1 cucumber, diced", "1 cup mozzarella pearls or cubes", "1 cup diced chicken or ham", "Dressing: ¼ cup olive oil, 2 tbsp red wine vinegar, 1 tsp honey, ½ tsp Italian seasoning, salt"],
+    steps: ["Cook pasta, rinse under cold water, drain well.", "Shake dressing in a jar.", "Toss pasta with dressing, then divide into containers with the add-ins.", "Keep a few 'plain pasta + cheese' jars for picky kids."],
+    picky: ["Deconstructed jar: pasta at the bottom, each add-in in its own layer.", "Mozzarella pearls are the draw."],
+    grownUp: "Add olives, red onion, salami and feta." },
+  { id: 'ca-muffins', name: "Banana Oat Muffins (No Refined Sugar)", cuisine: 'canadian', meal: 'Snack', emoji: '🍌', time: 30, level: 'Easy', serves: 12,
+    healthy: true, tags: ['lunchbox', 'freezer friendly', 'nut-free'], prep: { makes: '12 muffins', keeps: '3 days on counter', freezer: '3 months', reheat: 'Thaw in lunchbox by snack time' },
+    ingredients: ["3 very ripe bananas, mashed", "2 eggs", "⅓ cup maple syrup", "¼ cup melted butter or oil", "1 tsp vanilla", "1½ cups whole-wheat flour", "1 cup quick oats", "1 tsp baking soda, 1 tsp cinnamon, ¼ tsp salt", "½ cup mini chocolate chips or blueberries (optional)"],
+    steps: ["Heat oven to 350°F (175°C); line a muffin tin.", "Whisk bananas, eggs, maple, butter and vanilla.", "Stir in flour, oats, baking soda, cinnamon and salt just until combined; fold in extras.", "Bake 18–22 min until a toothpick comes out clean."],
+    picky: ["Mini muffins (bake 12–14 min) feel like a treat.", "Chocolate chips on top only — kids see them first."],
+    grownUp: "Add walnuts and a crumble top." },
+  { id: 'th-noodlejars', name: "Sunflower Noodle Salad Jars", cuisine: 'thai', meal: 'Lunch', emoji: '🍜', time: 20, level: 'Easy', serves: 4,
+    healthy: true, tags: ['nut-free', 'lunchbox', 'meal prep'], prep: { makes: '4 lunches', keeps: '3 days fridge', reheat: 'Eat cold' },
+    ingredients: ["250 g spaghetti or rice noodles", "Sauce: ⅓ cup sunflower seed butter, 3 tbsp soy, 2 tbsp honey, 1 tbsp rice vinegar, warm water to thin", "2 cups shredded chicken or edamame", "1 cup shredded carrot", "1 cucumber, matchsticks", "1 red pepper, thin strips"],
+    steps: ["Cook noodles, rinse cold and drain.", "Whisk sauce until smooth and pourable.", "Toss noodles with sauce; divide into containers.", "Top with chicken and veg (keep separate for picky eaters)."],
+    picky: ["'Peanut-butter noodles' — but school-safe.", "Veg on the side in a bento compartment."],
+    grownUp: "Add sriracha, lime, cilantro and crushed peanuts." },
+  { id: 'mx-salsachicken', name: "Salsa Shredded Chicken — 3 Meals", cuisine: 'mexican', meal: 'Dinner', emoji: '🐔', time: 10, cook: '4–6 hr slow cooker', level: 'Easy', serves: 10,
+    healthy: true, tags: ['slow cooker', 'meal prep', 'high protein'], prep: { makes: '≈ 8 cups shredded chicken', keeps: '4 days fridge', freezer: '3 months', reheat: 'Microwave or pan with a splash of broth' },
+    ingredients: ["1.3 kg boneless chicken breasts or thighs", "1½ cups mild salsa", "1 tsp cumin", "1 tsp garlic powder", "½ tsp salt", "Use it for: tacos, quesadillas, burrito bowls, soup"],
+    steps: ["Put chicken in the slow cooker, top with salsa and spices.", "Cook LOW 5–6 hours or HIGH 3–4 hours.", "Shred in the juices.", "Portion: Mon tacos, Wed quesadillas, freeze the rest."],
+    picky: ["Rinse a portion quickly for 'plain chicken' kids — it still tastes great.", "One cook, three different-looking dinners."],
+    grownUp: "Use salsa verde or add chipotle." },
+  { id: 'it-turkeyballs', name: "Baked Turkey & Spinach Meatballs", cuisine: 'italian', meal: 'Dinner', emoji: '🍝', time: 35, level: 'Easy', serves: 6,
+    healthy: true, tags: ['hidden veg', 'freezer friendly', 'meal prep'], prep: { makes: '≈ 36 meatballs', keeps: '4 days fridge', freezer: '3 months', reheat: 'Simmer in sauce 10 min from frozen' },
+    ingredients: ["700 g lean ground turkey", "1 cup frozen spinach, thawed and squeezed very dry, finely chopped", "1 egg", "½ cup breadcrumbs", "½ cup grated parmesan", "1 tsp garlic powder, 1 tsp Italian seasoning, ½ tsp salt", "Marinara and pasta to serve"],
+    steps: ["Heat oven to 400°F (200°C); line a sheet pan.", "Mix everything gently; roll into 1-inch balls.", "Bake 15–18 min until 165°F (74°C).", "Serve with sauce and pasta, or in subs. Freeze extras on a tray, then bag."],
+    picky: ["Spinach chopped very fine is just 'green flecks' — call them 'Hulk meatballs'.", "Serve with a dip cup of sauce instead of drowning them."],
+    grownUp: "Add chili flakes and fresh basil; top with ricotta." },
+];
+
+const HEALTHY = ['ca-salmon', 'th-larb', 'cn-eggdrop', 'mx-bowl', 'mx-fajitas', 'cn-beefbroc', 'jp-teriyaki', 'it-hiddenveg', 'th-satay', 'us-tenders', 'th-freshrolls'];
+const PREP = {
+  'us-bbq': { makes: '8 sliders + leftovers', keeps: '4 days fridge', freezer: '3 months', reheat: 'Microwave with a splash of sauce' },
+  'jp-curry': { makes: '6 bowls', keeps: '4 days fridge', freezer: '2 months (potatoes soften)', reheat: 'Stovetop, add water to loosen' },
+  'it-meatballs': { makes: '≈ 40 mini meatballs', keeps: '4 days fridge', freezer: '3 months', reheat: 'Simmer in sauce from frozen 12 min' },
+  'it-rollups': { makes: '12 roll-ups', keeps: '4 days fridge', freezer: '3 months (unbaked or baked)', reheat: '350°F covered 20–25 min' },
+  'mx-breakfast': { makes: '6 burritos', keeps: '3 days fridge', freezer: '2 months', reheat: 'Microwave 1–2 min in a paper towel' },
+  'ca-bites': { makes: '18 bites', keeps: '1 week fridge', freezer: '2 months' },
+  'mx-bowl': { makes: '4–5 bowls', keeps: '4 days fridge', reheat: 'Microwave 2 min (add cold toppings after)' },
+  'jp-teriyaki': { makes: '4–5 bowls', keeps: '4 days fridge', reheat: 'Microwave 2 min' },
+  'ca-shepherd': { makes: '6 servings', keeps: '4 days fridge', freezer: '3 months', reheat: '350°F 25 min or microwave' },
+  'it-hiddenveg': { makes: 'Sauce for 3 dinners', keeps: '5 days fridge', freezer: '3 months (sauce only)', reheat: 'Warm sauce, toss with fresh pasta' },
+  'us-meatloaf': { makes: '12 mini loaves', keeps: '4 days fridge', freezer: '3 months', reheat: 'Microwave 1 min each' },
+  'cn-dumplings': { makes: '40 dumplings', freezer: '3 months (freeze uncooked)', reheat: 'Cook from frozen, add 2 min steam' },
+};
+BASE.forEach(r => { if (HEALTHY.includes(r.id)) r.healthy = true; if (PREP[r.id]) r.prep = PREP[r.id]; });
+export const RECIPES = [...BASE, ...MORE];
+export const isPrep = r => !!r.prep;
+
 // Deterministic daily picks: rotate through cuisines so the feed changes every day but is the same on every device.
-export function dailyPicks(dateStr, count = 4) {
-  const seed = [...dateStr].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+export function dailyPicks(dateStr, count = 4, shuffle = 0) {
+  const seed = [...(dateStr + (shuffle ? '#' + shuffle : ''))].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const rand = mulberry(seed);
   const pool = RECIPES.filter(r => r.meal === 'Dinner' || r.meal === 'Lunch');
   const byCuisine = CUISINES.map(c => pool.filter(r => r.cuisine === c.id));

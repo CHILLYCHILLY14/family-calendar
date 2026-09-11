@@ -24,6 +24,7 @@ export function makeBackend({ pin = '246810' } = {}) {
     sheets[name] = sh; return sh;
   };
   const props = pin ? { FAMILY_PIN: pin } : {}; const cache = {};
+  const outbox = []; const triggers = [];
   const ctx = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: n => sheets[n] || null, insertSheet: n => makeSheet(n) }), flush() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; } }) },
@@ -33,16 +34,27 @@ export function makeBackend({ pin = '246810' } = {}) {
       DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
       computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(s, 'utf8').digest()).map(b => (b > 127 ? b - 256 : b)),
       getUuid: () => crypto.randomUUID(), sleep() {},
+      computeHmacSha256Signature: (value, key) => Array.from(crypto.createHmac('sha256', key).update(value).digest()).map(b => (b > 127 ? b - 256 : b)),
+      formatDate: (d, tz, fmt) => {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map(p => [p.type, p.value]));
+        return fmt === 'yyyy-MM-dd' ? `${parts.year}-${parts.month}-${parts.day}` : `${parts.hour}:${parts.minute}`;
+      },
     },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (text) => ({ text, setMimeType() { return this; } }) },
     Logger: { log() {} },
+    console: { log() {} },
+    UrlFetchApp: { fetch: (url, opts) => { outbox.push({ via: 'ntfy', url, ...JSON.parse(opts.payload) }); return { getResponseCode: () => 200 }; } },
+    MailApp: { sendEmail: (m) => { outbox.push({ via: 'email', ...m }); } },
+    Session: { getScriptTimeZone: () => 'America/Toronto' },
+    ScriptApp: { getProjectTriggers: () => triggers, deleteTrigger: t => triggers.splice(triggers.indexOf(t), 1), newTrigger: fn => ({ timeBased: () => ({ everyMinutes: m => ({ create: () => triggers.push({ getHandlerFunction: () => fn, minutes: m }) }) }) }) },
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs', import.meta.url), 'utf8'), ctx);
   return {
     post: (body) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).text),
     get: () => JSON.parse(ctx.doGet().text),
-    sheets, cache, props,
+    sheets, cache, props, outbox, triggers,
+    run: (name, ...args) => JSON.parse(JSON.stringify(ctx[name](...args) ?? null)),
   };
 }
 
