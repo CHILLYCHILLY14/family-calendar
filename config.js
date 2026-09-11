@@ -1,7 +1,7 @@
 // Family Hub settings — edit these, commit, and GitHub Pages redeploys automatically.
 export default {
   // Paste your Google Apps Script "Web app" URL here (see SETUP.md). Leave '' for single-device preview mode.
-  API_URL: '',
+  API_URL: 'https://script.google.com/macros/s/AKfycbxoaM-o3qCWxVXTqLToJK6g2uLxKnCcQdG249quElLmS3WGy-ILDjR_ghEcFx8uEtmq/exec',
 
   // Shown in the header. Everyone can also rename it in Settings.
   FAMILY_NAME: 'Family Hub',
