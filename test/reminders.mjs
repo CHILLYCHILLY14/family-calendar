@@ -99,6 +99,29 @@ test('morning summary lists the day for followed people; long outages never floo
   assert.equal(be.run('checkReminders_', at('2026-09-11', '10:00')).length, 0);
 });
 
+test('email reminders carry a one-tap Done link that works from the inbox', () => {
+  const be = makeBackend();
+  const token = be.post({ action: 'unlock', pin: '246810', api: 'https://script.google.com/macros/s/ABC_def-123/exec', app: 'https://chillychilly14.github.io/family-calendar/' }).token;
+  const people = [{ id: 'kevin', name: 'Kevin', notify: { email: 'kevin@example.com' } }];
+  be.post({ action: 'sync', token, since: 0, ops: [
+    { opId: 'a', id: 'settings_family', type: 'settings', data: { id: 'settings_family', people, timezone: 'America/Toronto' } },
+    { opId: 'b', id: 'ro_coffee', type: 'routine', data: { id: 'ro_coffee', title: 'Set coffee machine', icon: '☕', time: '21:00', days: [], people: ['kevin'], nag: 0 } },
+  ] });
+  be.props.LAST_CHECK = String(at('2026-09-11', '20:57'));
+  assert.equal(be.run('checkReminders_', at('2026-09-11', '21:02')).length, 1);
+  const mail = be.outbox.find(m => m.via === 'email');
+  assert.equal(mail.to, 'kevin@example.com');
+  assert.match(mail.subject, /Set coffee machine/);
+  const link = mail.body.match(/https:\/\/script\.google\.com\S+/)[0];
+  assert.match(link, /\?done=ro_coffee&date=2026-09-11&sig=[a-f0-9]{24}/);
+  const params = Object.fromEntries(new URL(link).searchParams);
+  assert.match(be.get(params).html, /Done/);
+  // the whole family sees it, and the nag stops
+  const after = be.post({ action: 'sync', token, since: 0, ops: [] });
+  assert.equal(after.items.find(i => i.type === 'routineLog').data.done, true);
+  assert.match(be.get({ ...params, sig: 'bad' }).html, /not valid/);
+});
+
 test('setup installs exactly one timer; test button needs the PIN token', () => {
   const be = makeBackend();
   const token = family(be);

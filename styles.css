@@ -681,3 +681,11 @@ h3.mt { margin-top: 14px; }
 .disc-card span { padding: 0 10px; font-weight: 800; font-size: .86rem; line-height: 1.2; }
 .r-thumb { width: 56px; height: 56px; border-radius: 14px; object-fit: cover; }
 @media (min-width: 860px) { #alerts { bottom: auto; top: 16px; left: auto; width: 420px; } }
+.store-box { padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, #0891b2 9%, var(--surface)); border: 1px solid color-mix(in srgb, #0891b2 25%, var(--line)); margin-bottom: 14px; }
+.store-box > b { display: block; margin-bottom: 6px; }
+.store-box dl { margin: 0; display: grid; gap: 4px; }
+.store-box dl > div { display: grid; grid-template-columns: 104px 1fr; gap: 8px; font-size: .88rem; }
+.store-box dt { font-weight: 800; color: var(--muted); }
+.store-box dd { margin: 0; }
+.store-box p { margin-top: 8px; }
+@media (max-width: 520px) { .store-box dl > div { grid-template-columns: 92px 1fr; } }

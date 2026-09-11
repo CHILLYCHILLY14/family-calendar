@@ -40,6 +40,7 @@ export function makeBackend({ pin = '246810' } = {}) {
         return fmt === 'yyyy-MM-dd' ? `${parts.year}-${parts.month}-${parts.day}` : `${parts.hour}:${parts.minute}`;
       },
     },
+    HtmlService: { createHtmlOutput: (html) => ({ html, setTitle() { return this; }, getContent() { return html; } }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (text) => ({ text, setMimeType() { return this; } }) },
     Logger: { log() {} },
     console: { log() {} },
@@ -52,7 +53,7 @@ export function makeBackend({ pin = '246810' } = {}) {
   vm.runInContext(fs.readFileSync(new URL('../apps-script/Code.gs', import.meta.url), 'utf8'), ctx);
   return {
     post: (body) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify(body) } }).text),
-    get: () => JSON.parse(ctx.doGet().text),
+    get: (params) => { const out = ctx.doGet(params ? { parameter: params } : undefined); return out.text ? JSON.parse(out.text) : { html: out.html }; },
     sheets, cache, props, outbox, triggers,
     run: (name, ...args) => JSON.parse(JSON.stringify(ctx[name](...args) ?? null)),
   };

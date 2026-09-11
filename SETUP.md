@@ -79,8 +79,8 @@ Three kinds of alerts:
 
 | What | When | Where it shows |
 |---|---|---|
-| **Daily checklist** (e.g. ☕ *Set coffee machine · 9pm*) | at its time, then every 15 min until someone taps ✓ Done | banner at the top of the app + phone push with a **✓ Done** button |
-| **Event reminders** | 1 hour before games/appointments, 30 min for everything else (you choose per event) | phone push + pop-up while the app is open |
+| **Daily checklist** (e.g. ☕ *Set coffee machine · 9pm*) | at its time, then every 15 min until someone taps ✓ Done | banner at the top of the app + an email with a **✓ Mark it done** link |
+| **Event reminders** | 1 hour before games/appointments, 30 min for everything else (you choose per event) | email + pop-up while the app is open |
 | **Morning summary** | 7am, if you turn it on | one message with the day's events, checklist, dinner and list counts |
 
 ### 1. Update the Google Apps Script (once)
@@ -93,19 +93,15 @@ Three kinds of alerts:
 
 The timer then checks every 5 minutes, whether or not anybody has the app open.
 
-### 2. Get push notifications on each phone (free)
+### 2. Add each person's email (that's the whole setup)
 
-1. Install **ntfy** — [iPhone](https://apps.apple.com/app/ntfy/id1625396347) · [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy).
-2. In Family Hub: **Settings → 🔔 Reminders & notifications**, tap **🎲 Create** beside your name, then **📋 Copy**.
-3. In the ntfy app tap **＋**, paste that topic name, **Subscribe**.
-4. Back in Settings tap **🔔 Test** — the phone should buzz.
-5. Use **Send … reminders for** to choose whose events you want (parents usually pick everyone; kids just themselves).
+In Family Hub: **Settings → 🔔 Reminders & notifications** → put an email address beside each name → **🔔 Test**.
 
-The topic name is the only secret, so keep it private — anyone who knows it can read those notifications. Prefer email? Put an address in the email box instead (or as well); Gmail allows about 100 reminder emails a day.
+Reminders are sent by Google from your own Gmail, so nothing can block them. On a phone they arrive like any other mail notification — make sure the mail app is allowed to show notifications (iPhone: Settings → Notifications → Mail). Checklist emails include a one-tap **✓ Mark it done** link that ticks the item off for the whole family without opening anything. Gmail allows about 100 of these a day, far more than a family needs.
 
-### 3. Pop-ups while the app is open
+Use **Send … reminders for** to choose whose events each person hears about — parents usually pick everyone, kids just themselves.
 
-**Settings → Allow pop-ups** turns on browser notifications for that device. On iPhone this only works if you first add the app to the home screen (Share → Add to Home Screen). Phone push through ntfy works either way, which is why it's the recommended setup.
+> **Why not phone-push apps?** The app can also publish to [ntfy](https://ntfy.sh), but Google's servers cannot reach ntfy.sh ("Address unavailable"), so scheduled reminders can't go out that way. The field is still there under *Advanced* if you ever self-host ntfy on your own domain.
 
 ### Using the daily checklist
 
@@ -120,7 +116,8 @@ The topic name is the only secret, so keep it private — anyone who knows it ca
 
 - **Do the recipes change?** Yes: the daily feed picks new ones every day, **🔄 New picks** reshuffles on demand, and **🌍 Discover new recipes** pulls fresh ideas from a free online library (TheMealDB) by cuisine — save any of them into *Our recipes* with one tap. You can also add your own.
 - **🥗 Healthy** filters to the lighter, veggie- and protein-forward recipes.
-- **📦 Meal prep** filters to batch recipes. Each shows how much it makes, how long it keeps, whether it freezes, and how to reheat.
+- **📦 Meal prep** filters to batch recipes, and **❄️ Freezes well** to the ones worth doubling.
+- **Every** recipe — not just the prep ones — shows *Storing & reheating*: how long it keeps in the fridge, whether (and how long) it freezes, how to pack it so it survives, and exactly how to reheat it.
 - **Sunday meal prep**: open 2–4 prep recipes and tap **Add to prep plan**. Picky Eats then builds one combined shopping list (one tap to add it all to groceries), a cook-order game plan, and the storage notes for each dish.
 
 ---

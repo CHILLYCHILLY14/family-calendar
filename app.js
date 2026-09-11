@@ -937,7 +937,7 @@ function renderEditor() {
         <label class="field"><span class="label">&nbsp;</span><span class="toggle"><input type="checkbox" data-change="ed-allday" ${ev.allDay ? 'checked' : ''}/><span></span>All day</span></label>
       </div>
       ${ev.allDay ? `<label class="field"><span class="label">Ends (for multi-day, e.g. tournaments/trips)</span><input class="input" type="date" value="${esc((draft.onlyThis ? draft.onlyEndDate : ev.endDate) || '')}" min="${draft.onlyThis ? draft.onlyDate : ev.date}" data-change="ed-field" data-field="endDate"/></label>`
-        : `<div class="grid2"><label class="field"><span class="label">Starts</span><input class="input" type="time" value="${esc(ev.start)}" data-change="ed-start" step="300"/></label><label class="field"><span class="label">Ends</span><input class="input" type="time" value="${esc(ev.end)}" data-change="ed-field" data-field="end" step="300"/></label></div>`}
+        : `<div class="grid2"><label class="field"><span class="label">Starts</span><input class="input" type="time" value="${esc(ev.start)}" data-change="ed-start"/></label><label class="field"><span class="label">Ends</span><input class="input" type="time" value="${esc(ev.end)}" data-change="ed-field" data-field="end"/></label></div>`}
       ${conf.length ? `<div class="warn-box">⚠️ Heads up: ${conf.map(o => `${esc(evPeople(o.ev).map(p => p.name).join(' & '))} ${evPeople(o.ev).length > 1 ? 'have' : 'has'} <b>${esc(o.ev.title)}</b> ${L.fmtRange(o.ev)}`).join('; ')}</div>` : ''}
 
       ${draft.onlyThis ? '' : `<div class="field"><span class="label">Repeats</span>
@@ -1106,6 +1106,21 @@ function recipeCard(r, big = false) {
       ${likers.length ? `<span class="rc-likes">${likers.map(p => `<i style="--pc:${p.color}" title="${esc(p.name)} likes this">${esc(p.name[0])}</i>`).join('')} 👍</span>` : ''}
     </span></button>`;
 }
+// Packaging, fridge/freezer life and reheating — shown on every recipe
+function storageBox(r) {
+  const st = r.storage;
+  if (!st && !r.prep) return '';
+  const rows = [
+    r.prep?.makes && ['📦 Makes', r.prep.makes],
+    st?.fridge && ['🧊 Fridge', st.fridge],
+    (st?.freezer || r.prep?.freezer) && ['❄️ Freezer', st?.freezer || r.prep.freezer],
+    st?.pack && ['🥡 Packing', st.pack],
+    (st?.reheat || r.prep?.reheat) && ['🔥 Reheat', st?.reheat || r.prep.reheat],
+  ].filter(Boolean);
+  if (!rows.length) return '';
+  return `<div class="store-box"><b>Storing & reheating</b><dl>${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
+    <p class="tiny muted">Cool leftovers within 2 hours, and reheat until steaming hot all the way through.</p></div>`;
+}
 function viewMeals() {
   const t = L.today();
   const shuffle = prefs.pickShuffle && prefs.pickShuffle.date === t ? prefs.pickShuffle.n : 0;
@@ -1116,7 +1131,8 @@ function viewMeals() {
   if (prefs.mealFav) list = list.filter(r => recipeMeta(r.id).likes?.length);
   if (prefs.mealHealthy) list = list.filter(r => r.healthy);
   if (prefs.mealPrepOnly) list = list.filter(r => r.prep);
-  if (q) list = list.filter(r => [r.name, cuisineName(r.cuisine), ...(r.tags || []), ...(r.ingredients || [])].join(' ').toLowerCase().includes(q));
+  if (prefs.mealFreezer) list = list.filter(r => r.storage && !/^(no|not)/i.test(r.storage.freezer));
+  if (q) list = list.filter(r => [r.name, cuisineName(r.cuisine), ...(r.tags || []), ...(r.ingredients || []), r.storage?.freezer && 'freezer', r.storage?.fridge && 'leftovers'].filter(Boolean).join(' ').toLowerCase().includes(q));
   const plan = Array.from({ length: 7 }, (_, i) => {
     const d = L.addDays(wkStart, i); const p = store.get('mp_' + d); const r = p?.recipeId && recipeById(p.recipeId);
     return `<button class="plan-day ${d === t ? 'today' : ''} ${p ? 'set' : ''}" data-act="plan-day" data-date="${d}"><span class="tiny muted">${DAY_NAMES[L.dow(d)]} ${L.parse(d).getDate()}</span><span class="pd-emoji">${r ? r.emoji || '🍲' : p?.text || p?.recipeName ? '🍲' : '＋'}</span><span class="pd-name">${r ? esc(r.name) : p?.text || p?.recipeName ? esc(p.text || p.recipeName) : '<span class="muted">Plan</span>'}</span></button>`;
@@ -1143,6 +1159,7 @@ function viewMeals() {
       <div class="seg sm">${['all', ...MEAL_TYPES].map(m => `<button class="${prefs.mealType === m ? 'on' : ''}" data-act="meal-type" data-id="${m}">${m === 'all' ? 'Any meal' : m}</button>`).join('')}</div>
       <button class="chip ${prefs.mealHealthy ? 'on' : ''}" data-act="meal-toggle" data-k="mealHealthy">🥗 Healthy</button>
       <button class="chip ${prefs.mealPrepOnly ? 'on' : ''}" data-act="meal-toggle" data-k="mealPrepOnly">📦 Meal prep</button>
+      <button class="chip ${prefs.mealFreezer ? 'on' : ''}" data-act="meal-toggle" data-k="mealFreezer">❄️ Freezes well</button>
       <button class="chip ${prefs.mealFav ? 'on' : ''}" data-act="meal-fav">👍 Family likes</button>
       <input class="input sm search" type="search" placeholder="Search: chicken, noodles, rice…" value="${esc(prefs.mealSearch)}" data-input="meal-search" aria-label="Search recipes"/>
       <button class="btn sm" data-act="new-recipe">＋ Our recipe</button>
@@ -1175,7 +1192,7 @@ function prepCard() {
       <section><h3>🛒 One shopping list</h3><ul class="ingredients prep-ings">${ings.map((ing, i) => `<li><label><input type="checkbox" checked data-ing="${i}"/> <span>${esc(ing)}</span></label></li>`).join('')}</ul>
         <button class="btn sm primary" data-act="prep-groceries">🛒 Add checked to groceries</button></section>
       <section><h3>🧭 Game plan</h3><ol class="steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>
-        <h3 class="mt">🧊 Storage</h3><ul class="store-list">${recs.map(r => `<li><b>${esc(r.name)}</b> — ${esc(r.prep ? [r.prep.keeps, r.prep.freezer && 'freezer ' + r.prep.freezer].filter(Boolean).join(' · ') : '3–4 days fridge')}</li>`).join('')}</ul></section>
+        <h3 class="mt">🧊 Storage</h3><ul class="store-list">${recs.map(r => `<li><b>${esc(r.name)}</b> — fridge ${esc(r.storage?.fridge || r.prep?.keeps || '3–4 days')} · freezer ${esc(r.storage?.freezer || r.prep?.freezer || 'not recommended')}<br><span class="muted">${esc(r.storage?.pack || '')}${r.storage?.reheat ? ' · Reheat: ' + esc(r.storage.reheat) : ''}</span></li>`).join('')}</ul></section>
     </div>
   </section>`;
 }
@@ -1232,7 +1249,7 @@ function openRecipe(idOrRecipe) {
     <div class="modal-body">
       ${r.healthy || r.prep || r.tags?.length ? `<div class="tags">${r.healthy ? '<span class="badge healthy">🥗 Healthy</span>' : ''}${r.prep ? '<span class="badge prep">📦 Meal prep</span>' : ''}${(r.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
       ${r.online && !saved ? '<div class="note-box">🌍 From the online library — tap <b>Save to our recipes</b> to keep it and plan it.</div>' : ''}
-      ${r.prep ? `<div class="prep-box"><b>📦 Meal prep</b>${r.prep.makes ? `<span>Makes: ${esc(r.prep.makes)}</span>` : ''}${r.prep.keeps ? `<span>Keeps: ${esc(r.prep.keeps)}</span>` : ''}${r.prep.freezer ? `<span>Freezer: ${esc(r.prep.freezer)}</span>` : ''}${r.prep.reheat ? `<span>Reheat: ${esc(r.prep.reheat)}</span>` : ''}</div>` : ''}
+      ${storageBox(r)}
       ${!r.online || saved ? `<div class="likes-row"><span class="label">Who likes it?</span><div class="chips">${people().map(p => `<button class="chip person ${(m.likes || []).includes(p.id) ? 'on' : ''}" data-act="like" data-id="${id}" data-p="${p.id}" style="--pc:${p.color}">👍 ${esc(p.name)}</button>`).join('')}</div></div>` : ''}
       <div class="r-cols">
         <section><h3>🧺 Ingredients</h3>
@@ -1332,7 +1349,7 @@ function routineForm(rt = null, personId = '') {
       ${isNew ? `<div class="field"><span class="label">Quick picks</span><div class="chips">${L.ROUTINE_TEMPLATES.map((tp, i) => `<button type="button" class="chip" data-act="routine-template" data-i="${i}">${tp.icon} ${esc(tp.title)}</button>`).join('')}</div></div>` : ''}
       <div class="grid-icon"><label class="field"><span class="label">Icon</span><input class="input emoji-in" name="icon" value="${esc(rt.icon || '✅')}" maxlength="4"/></label>
         <label class="field"><span class="label">What needs doing?</span><input class="input" name="title" value="${esc(rt.title)}" placeholder="Set coffee machine" required maxlength="60" ${isNew ? 'autofocus' : ''}/></label></div>
-      <div class="grid2"><label class="field"><span class="label">Time</span><input class="input" type="time" name="time" value="${esc(rt.time || '')}" step="300"/></label>
+      <div class="grid2"><label class="field"><span class="label">Time</span><input class="input" type="time" name="time" value="${esc(rt.time || '')}"/></label>
         <label class="field"><span class="label">If not done, remind again</span><select class="select" name="nag">${[[0, 'No repeats'], [10, 'Every 10 min (×3)'], [15, 'Every 15 min (×3)'], [30, 'Every 30 min (×3)']].map(([v, l]) => `<option value="${v}" ${Number(rt.nag || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
       <div class="field"><span class="label">Days <small class="muted">(leave all off = every day)</small></span><div class="weekdays">${DAY_NAMES.map((n, i) => `<label class="wd-check"><input type="checkbox" name="days" value="${i}" ${(rt.days || []).includes(i) ? 'checked' : ''}/><span>${n[0]}</span></label>`).join('')}</div></div>
       <div class="field"><span class="label">Whose job? <small class="muted">(none = anyone)</small></span><div class="chips">${people().map(p => `<label class="chip-check" style="--pc:${p.color}"><input type="checkbox" name="people" value="${p.id}" ${(rt.people || []).includes(p.id) ? 'checked' : ''}/><span><i class="dot"></i>${esc(p.name)}</span></label>`).join('')}</div></div>
@@ -1342,6 +1359,7 @@ function routineForm(rt = null, personId = '') {
     <div class="modal-foot">${isNew ? '<span></span>' : `<button type="button" class="btn ghost danger" data-act="del-routine" data-id="${esc(rt.id)}">Delete</button>`}<button class="btn primary">${isNew ? 'Add to checklist' : 'Save'}</button></div>
   </form>`);
 }
+let notifyError = '';
 function notifyStatus() {
   if (!store.isShared) return `<div class="note-box">🧪 Phone reminders need the shared Google setup. In preview mode you'll still see reminders while the app is open.</div>`;
   if (store.remindersRunning === true) return `<p class="ok-line">✅ Reminder timer is running — checks every 5 minutes, even when every phone is closed.</p>`;
@@ -1354,17 +1372,20 @@ function notificationsSection() {
   return `<section class="card pad" id="notify-settings">
     <div class="sec-head"><h2>🔔 Reminders & notifications</h2></div>
     ${notifyStatus()}
-    <details class="how" ${people().some(p => p.notify?.ntfy) ? '' : 'open'}><summary>How to get reminders on your phone (free, 2 minutes)</summary>
-      <ol class="steps"><li>Install the free <b>ntfy</b> app — <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener">iPhone</a> · <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener">Android</a>.</li>
-      <li>Below, tap <b>🎲 Create</b> next to your name, then <b>📋 Copy</b>.</li>
-      <li>In ntfy tap <b>＋</b>, paste the topic name and <b>Subscribe</b>.</li>
-      <li>Tap <b>🔔 Test</b>. Checklist alerts have a <b>✓ Done</b> button right in the notification.</li></ol>
-      <p class="tiny muted">The topic name works like a password — keep it private. Email works too (optional).</p></details>
+    ${notifyError ? `<div class="warn-box">⚠️ Last test: ${esc(notifyError)}<br><span class="tiny">If it mentions permission, open Apps Script → run <b>setup</b> → then Deploy → Manage deployments → ✏️ → New version.</span></div>` : ''}
+    <details class="how" ${people().some(p => p.notify?.email) ? '' : 'open'}><summary>How reminders reach your phone</summary>
+      <ol class="steps"><li>Put each person's <b>email address</b> in below — that's the whole setup.</li>
+      <li>Make sure that phone's mail app is allowed to show notifications (iPhone: Settings → Notifications → Mail).</li>
+      <li>Tap <b>🔔 Test</b> to check it.</li></ol>
+      <p class="tiny muted">Reminders are sent by Google from your own account, so they can't be blocked. Checklist emails include a one-tap <b>✓ Mark it done</b> link that ticks it off for the whole family. Gmail allows about 100 reminder emails a day — far more than a family needs.</p></details>
     <div class="notify-grid">${s.people.map(p => { const n = p.notify || {}; const follow = n.follow && n.follow.length ? n.follow : [p.id]; return `
       <div class="notify-person" style="--pc:${p.color}">
         <div class="np-head">${avatar(p, 'sm')}<b>${esc(p.name)}</b><button class="btn sm" data-act="nt-test" data-id="${p.id}">🔔 Test</button></div>
-        <label class="field"><span class="label">📱 Phone topic (ntfy)</span><div class="row"><input class="input sm" value="${esc(n.ntfy || '')}" placeholder="familyhub-…" data-change="nt-field" data-id="${p.id}" data-k="ntfy" maxlength="64" autocomplete="off" spellcheck="false"/><button class="btn sm" data-act="nt-make" data-id="${p.id}" title="Create a private topic">🎲 Create</button><button class="btn sm" data-act="nt-copy" data-id="${p.id}" title="Copy">📋</button></div></label>
-        <label class="field"><span class="label">✉️ Email (optional)</span><input class="input sm" type="email" value="${esc(n.email || '')}" placeholder="name@example.com" data-change="nt-field" data-id="${p.id}" data-k="email" maxlength="120"/></label>
+        <label class="field"><span class="label">✉️ Email for reminders</span><input class="input sm" type="email" value="${esc(n.email || '')}" placeholder="name@example.com" data-change="nt-field" data-id="${p.id}" data-k="email" maxlength="120"/></label>
+        <details class="adv"><summary>Phone push app (advanced)</summary>
+          <p class="tiny muted">ntfy push can't be sent by Google's servers (they can't reach ntfy.sh), so this only works for tests from a browser. Leave it empty unless you're self-hosting ntfy.</p>
+          <div class="row"><input class="input sm" value="${esc(n.ntfy || '')}" placeholder="familyhub-…" data-change="nt-field" data-id="${p.id}" data-k="ntfy" maxlength="64" autocomplete="off" spellcheck="false" aria-label="ntfy topic"/><button class="btn sm" data-act="nt-make" data-id="${p.id}" title="Create a private topic">🎲</button><button class="btn sm" data-act="nt-copy" data-id="${p.id}" title="Copy">📋</button></div>
+        </details>
         <div class="field"><span class="label">Send ${esc(p.name)} reminders for</span><div class="chips">${s.people.map(q => `<button class="chip person sm-chip ${follow.includes(q.id) ? 'on' : ''}" data-act="nt-follow" data-id="${p.id}" data-p="${q.id}" style="--pc:${q.color}">${esc(q.name)}</button>`).join('')}</div></div>
         <div class="row wrap"><label class="toggle sm"><input type="checkbox" data-change="nt-summary" data-id="${p.id}" ${n.summary ? 'checked' : ''}/><span></span>☀️ Morning summary at</label><select class="select sm auto" data-change="nt-field" data-id="${p.id}" data-k="summaryTime">${['06:00', '06:30', '07:00', '07:30', '08:00'].map(t => `<option value="${t}" ${(n.summaryTime || '07:00') === t ? 'selected' : ''}>${L.fmtTime(t)}</option>`).join('')}</select></div>
       </div>`; }).join('')}</div>
@@ -1504,16 +1525,17 @@ const actions = {
   'nt-follow': el => { const p = personById(el.dataset.id); if (!p) return; const cur = p.notify?.follow?.length ? [...p.notify.follow] : [p.id]; const q = el.dataset.p; let next = cur.includes(q) ? cur.filter(x => x !== q) : [...cur, q]; if (!next.length) next = [p.id]; updateNotify(p.id, { follow: next }); renderPage(); },
   'nt-test': async el => {
     const p = personById(el.dataset.id); const n = p?.notify || {};
-    if (!n.ntfy && !n.email) return toast('Add a phone topic or email for ' + (p?.name || 'them') + ' first');
+    if (!n.ntfy && !n.email) return toast('Add an email address for ' + (p?.name || 'them') + ' first');
     el.disabled = true;
     try {
       if (store.isShared && store.token) {
         await store.sync(true);
         const res = await store.call({ action: 'testNotify', token: store.token, person: p.id, ...store.urls() });
-        if (res.ok) { store.remindersRunning = res.reminders; toast('Test sent — check the phone 📱'); renderPage(); return; }
+        if (res.ok) { store.remindersRunning = res.reminders; notifyError = ''; toast(n.email ? 'Test sent — check ' + n.email + ' 📧' : 'Test sent 📱'); renderPage(); return; }
+        if (res.error === 'send_failed') { notifyError = res.message || 'Sending failed'; toast("Google couldn't send it — details below"); renderPage(); return; }
         if (res.error !== 'unknown_action') { toast('Test failed: ' + (res.message || res.error)); return; }
       }
-      if (!n.ntfy) return toast('Email tests need the updated Google script');
+      if (!n.ntfy) return toast('Email reminders need the updated Google script — see SETUP.md');
       const server = (settings().ntfyServer || 'https://ntfy.sh').replace(/\/$/, '');
       const r = await fetch(`${server}/${encodeURIComponent(n.ntfy)}`, { method: 'POST', body: `Reminders are working for ${p.name}!`, headers: { Title: 'Family Hub test', Tags: 'bell' } });
       toast(r.ok ? (store.isShared ? 'Test sent from this device. Update the Google script for automatic reminders.' : 'Test sent — check the phone 📱') : 'ntfy said no — check the topic name');
