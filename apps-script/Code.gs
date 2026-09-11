@@ -9,7 +9,9 @@
  * Every request must carry a token that can only be obtained with the PIN.
  * All data is stored in the "Items" tab of the spreadsheet this script is attached to.
  *
- * REMINDERS (phone push via the free ntfy app, and/or email):
+ * REMINDERS: email is the reliable channel — Google sends it from inside Google.
+ *   (Google's servers cannot reach ntfy.sh — "Address unavailable" — so phone-push via ntfy
+ *    only works from a browser. The email reminders include a one-tap "✓ Mark it done" link.)
  * 4. After pasting a new version of this file: Save → pick "setup" in the function menu → Run
  *    (allow the new permissions). That starts a timer that checks reminders every few minutes.
  * 5. Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy (the URL stays the same).
@@ -21,8 +23,19 @@ const LOCK_MINUTES = 15;            // ... before PIN entry is paused for everyo
 const HEADERS = ['id', 'type', 'data', 'updatedAt', 'deleted', 'updatedBy'];
 const CHECK_EVERY_MINUTES = 5;      // reminder timer: 1, 5, 10, 15 or 30
 
-function doGet() {
-  return json_({ ok: true, app: 'family-hub', version: 3, time: Date.now() });
+function doGet(e) {
+  const p = (e && e.parameter) || {};
+  // "✓ Mark it done" link from a reminder email
+  if (p.done && p.date && p.sig) {
+    const res = doneFromNotification_({ id: p.done, date: p.date, sig: p.sig });
+    const appUrl = PropertiesService.getScriptProperties().getProperty('APP_URL') || '';
+    const message = res.ok ? '✅ Done — everyone else will see it within seconds.' : '⚠️ That link has expired or is not valid.';
+    return HtmlService.createHtmlOutput('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<div style="font:600 18px/1.5 system-ui,sans-serif;padding:44px 24px;text-align:center;color:#0f172a">' + message +
+      (appUrl ? '<p style="margin-top:24px"><a href="' + appUrl + '" style="color:#2563eb">Open the family calendar</a></p>' : '') + '</div>')
+      .setTitle('Family Hub');
+  }
+  return json_({ ok: true, app: 'family-hub', version: 4, time: Date.now() });
 }
 
 function doPost(e) {
@@ -37,7 +50,7 @@ function doPost(e) {
     switch (body.action) {
       case 'unlock': return json_(unlock_(body));
       case 'sync':   return json_(sync_(body));
-      case 'ping':   return json_({ ok: true, auth: validToken_(body.token), time: Date.now(), reminders: remindersRunning_() });
+      case 'ping':   return json_({ ok: true, auth: validToken_(body.token), time: Date.now(), reminders: remindersRunning_(), lastSent: PropertiesService.getScriptProperties().getProperty('LAST_SENT') || '' });
       case 'done':   return json_(doneFromNotification_(body));
       case 'testNotify': return json_(testNotify_(body));
       default:       return json_({ ok: false, error: 'unknown_action' });
@@ -272,9 +285,10 @@ function recipients_(people, ids) {
 }
 
 function send_(settings, people, msg) {
+  const doneLink = msg.doneLink || '';
   const server = String(settings.ntfyServer || 'https://ntfy.sh').replace(/\/$/, '');
   const appUrl = PropertiesService.getScriptProperties().getProperty('APP_URL') || '';
-  const topics = {}, emails = {};
+  const topics = {}, emails = {}, results = [];
   people.forEach(p => {
     const n = p.notify || {};
     const topic = String(n.ntfy || '').trim();
@@ -283,16 +297,32 @@ function send_(settings, people, msg) {
       const payload = { topic: topic, title: msg.title, message: msg.body, tags: msg.tags || [], priority: msg.priority || 4 };
       if (appUrl) payload.click = appUrl;
       payload.actions = (msg.actions || []).concat(appUrl ? [{ action: 'view', label: 'Open', url: appUrl }] : []).slice(0, 3);
-      try { UrlFetchApp.fetch(server + '/', { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true }); }
-      catch (e) { console.log('ntfy failed: ' + e); }
+      try {
+        const res = UrlFetchApp.fetch(server + '/', { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true });
+        const code = res.getResponseCode();
+        results.push({ to: p.name, via: 'phone', ok: code < 300, detail: code < 300 ? 'sent' : 'ntfy said ' + code + ': ' + res.getContentText().slice(0, 120) });
+        if (code >= 300) console.error('ntfy ' + code + ' for ' + topic + ': ' + res.getContentText().slice(0, 200));
+      } catch (e) {
+        results.push({ to: p.name, via: 'phone', ok: false, detail: String(e).slice(0, 200) });
+        console.error('ntfy failed for ' + topic + ': ' + e);
+      }
     }
     const email = String(n.email || '').trim();
     if (email && !emails[email] && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       emails[email] = true;
-      try { MailApp.sendEmail({ to: email, subject: msg.title, body: msg.body + (appUrl ? '\n\nOpen the family calendar: ' + appUrl : '') }); }
-      catch (e) { console.log('email failed: ' + e); }
+      try {
+        const lines = [msg.body];
+        if (doneLink) lines.push('', '✓ Mark it done: ' + doneLink);
+        if (appUrl) lines.push('', 'Open the family calendar: ' + appUrl);
+        MailApp.sendEmail({ to: email, subject: msg.title, body: lines.join('\n') });
+        results.push({ to: p.name, via: 'email', ok: true, detail: 'sent' });
+      } catch (e) {
+        results.push({ to: p.name, via: 'email', ok: false, detail: String(e).slice(0, 200) });
+        console.error('email failed for ' + email + ': ' + e);
+      }
     }
   });
+  return results;
 }
 
 /** Timer entry point (created by setup). */
@@ -350,8 +380,10 @@ function checkReminders_(nowMs) {
     const times = [base].concat(nag ? [base + nag, base + 2 * nag, base + 3 * nag] : []);
     const hit = times.findIndex(due);
     if (hit < 0) return;
-    const actions = webUrl ? [{ action: 'http', label: '✓ Done', url: webUrl, method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'done', id: rt.id, date: date, sig: sign_(rt.id + '|' + date) }), clear: true }] : [];
-    const msg = { title: (rt.icon || '✅') + ' ' + rt.title + (hit ? ' — still to do' : ''), body: fmtTime_(rt.time) + ' · ' + names(rt.people) + '\nTap ✓ Done when it\'s finished.', tags: ['white_check_mark'], priority: hit ? 4 : 3, actions: actions };
+    const sig = sign_(rt.id + '|' + date);
+    const doneLink = webUrl ? webUrl + '?done=' + encodeURIComponent(rt.id) + '&date=' + date + '&sig=' + sig : '';
+    const actions = webUrl ? [{ action: 'http', label: '✓ Done', url: webUrl, method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'done', id: rt.id, date: date, sig: sig }), clear: true }] : [];
+    const msg = { title: (rt.icon || '✅') + ' ' + rt.title + (hit ? ' — still to do' : ''), body: fmtTime_(rt.time) + ' · ' + names(rt.people) + '\nTap ✓ Done when it\'s finished.', tags: ['white_check_mark'], priority: hit ? 4 : 3, actions: actions, doneLink: doneLink };
     send_(s, recipients_(people, rt.people), msg);
     sent.push({ kind: 'routine', id: rt.id, date: date, title: msg.title });
   });
@@ -405,8 +437,10 @@ function testNotify_(body) {
   const s = loadData_().settings;
   const p = (s.people || []).filter(x => x.id === body.person);
   if (!p.length || !(p[0].notify && (p[0].notify.ntfy || p[0].notify.email))) return { ok: false, error: 'no_channel', message: 'Save a phone topic or email for this person first.' };
-  send_(s, p, { title: '🔔 Family Hub test', body: 'Reminders are working for ' + p[0].name + '!', tags: ['bell'], priority: 3 });
-  return { ok: true, reminders: remindersRunning_() };
+  const results = send_(s, p, { title: '🔔 Family Hub test', body: 'Reminders are working for ' + p[0].name + '!', tags: ['bell'], priority: 3 });
+  const failed = results.filter(r => !r.ok);
+  if (failed.length) return { ok: false, error: 'send_failed', message: failed.map(r => r.via + ': ' + r.detail).join(' · '), results: results };
+  return { ok: true, reminders: remindersRunning_(), results: results };
 }
 
 /** Run once from the editor (and again after pasting a new version): creates the Items tab, authorizes, and starts the reminder timer. */
