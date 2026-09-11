@@ -36,6 +36,15 @@ await test('backend has no usable default family PIN', () => {
   assert.equal(backend.post({ action: 'unlock', pin: '2468' }).error, 'not_configured');
   assert.equal(backend.post(null).error, 'bad_request');
 });
+await test('four-digit family PINs work without accepting shorter or overlong PINs', () => {
+  const backend = makeBackend({ pin: '1357' });
+  const result = backend.post({ action: 'unlock', pin: '1357' });
+  assert.ok(result.ok && result.token.length === 64);
+  assert.ok(backend.post({ action: 'sync', token: result.token, since: 0, ops: [] }).ok);
+  for (const pin of ['123', '1234567890123']) {
+    assert.equal(makeBackend({ pin }).post({ action: 'unlock', pin }).error, 'not_configured');
+  }
+});
 await test('changing the private PIN invalidates existing tokens', () => {
   const backend = makeBackend();
   const token = backend.post({ action: 'unlock', pin: '246810' }).token;

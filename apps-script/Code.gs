@@ -1,7 +1,7 @@
 /**
  * Family Hub — shared storage backend (Google Apps Script + Google Sheets)
  * ------------------------------------------------------------------------
- * 1. In Project Settings → Script properties, add FAMILY_PIN (6–12 digits).
+ * 1. In Project Settings → Script properties, add FAMILY_PIN (4–12 digits).
  * 2. Deploy → New deployment → Web app → Execute as: Me, Who has access: Anyone.
  * 3. Paste the Web app URL into config.js (API_URL) in your GitHub repo.
  *
@@ -43,7 +43,7 @@ function doPost(e) {
 
 function familyPin_() {
   const pin = PropertiesService.getScriptProperties().getProperty('FAMILY_PIN') || '';
-  return /^[0-9]{6,12}$/.test(pin) ? pin : '';
+  return /^[0-9]{4,12}$/.test(pin) ? pin : '';
 }
 
 function secret_() {
@@ -68,7 +68,7 @@ function validToken_(token) {
 
 function unlock_(body) {
   const pin = familyPin_();
-  if (!pin) return { ok: false, error: 'not_configured', message: 'Add a 6–12 digit FAMILY_PIN in Google Apps Script project settings.' };
+  if (!pin) return { ok: false, error: 'not_configured', message: 'Add a 4–12 digit FAMILY_PIN in Google Apps Script project settings.' };
   const lock = LockService.getScriptLock();
   lock.waitLock(25000);
   try {
@@ -179,7 +179,7 @@ function json_(obj) {
 
 /** Optional: run once from the editor to create the Items tab and authorize the script. */
 function setup() {
-  if (!familyPin_()) throw new Error('Add FAMILY_PIN (6–12 digits) under Project Settings → Script properties first.');
+  if (!familyPin_()) throw new Error('Add FAMILY_PIN (4–12 digits) under Project Settings → Script properties first.');
   sheet_();
   secret_();
   Logger.log('Ready. Now Deploy → New deployment → Web app.');

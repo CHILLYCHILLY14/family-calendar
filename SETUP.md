@@ -29,7 +29,7 @@ Open it, enter `1234`, and try **Settings → Add sample events** to see everyth
 1. Go to **sheets.google.com** → create a **Blank spreadsheet**. Name it `Family Hub Data`.
 2. In the sheet: **Extensions → Apps Script**.
 3. Delete the sample code, then paste in everything from `apps-script/Code.gs` (from the zip).
-4. Open **Project Settings** (gear on the left) → **Script properties → Add script property**. Set **Property** to `FAMILY_PIN` and **Value** to your own 6–12 digit PIN, then **Save script properties**. The backend will not accept a PIN until this is configured. Do not put your real PIN in any GitHub file.
+4. Open **Project Settings** (gear on the left) → **Script properties → Add script property**. Set **Property** to `FAMILY_PIN` and **Value** to your own 4–12 digit PIN, then **Save script properties**. The backend will not accept a PIN until this is configured. Do not put your real PIN in any GitHub file.
 5. Click **💾 Save**. In the function dropdown pick **setup** and press **▶ Run**.
    Google asks for permission: **Review permissions → your account → Advanced → Go to Family Hub (unsafe) → Allow**. (It says "unsafe" only because it's your own private script, not a published app.)
 6. Click **Deploy → New deployment** → gear ⚙️ → **Web app**:
