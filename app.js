@@ -3,6 +3,7 @@ import CONFIG from './config.js';
 import { store, ls, uid } from './store.js';
 import * as L from './lib.js';
 import { RECIPES, CUISINES, MEAL_TYPES, dailyPicks } from './meals.js';
+import { parseSchedule, parseIcs } from './import.js';
 
 const { esc } = L;
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -711,6 +712,7 @@ function viewCalendar() {
       <select class="select sm" data-change="filter-cat" aria-label="Activity filter">${catOpts}</select>
       ${prefs.view === 'day' ? `<label class="toggle"><input type="checkbox" data-change="split" ${prefs.split ? 'checked' : ''}/><span></span>Split by person</label>` : ''}
       ${prefs.view === 'day' || prefs.view === 'week' ? `<button class="btn sm ghost" data-act="share-range">📤 Share</button>` : ''}
+      <button class="btn sm ghost" data-act="import-open">📥 Import schedule</button>
       <button class="btn sm ghost wide-only" data-act="print">🖨️ Print</button>
     </div>
   </div>
@@ -884,6 +886,71 @@ function calShift(dir) {
   const c = prefs.cursor;
   prefs.cursor = { month: L.addMonths(c, dir), week: L.addDays(c, 7 * dir), family: L.addDays(c, 7 * dir), day: L.addDays(c, dir), list: L.addDays(c, 30 * dir) }[prefs.view] || c;
   savePrefs(); renderPage();
+}
+
+/* =====================================================================
+   IMPORT A SEASON — paste a schedule or drop in a team .ics file
+   ===================================================================== */
+let imp = null; // { text, events, skipped, chosen:Set, people, category, prefix, remind, source }
+function openImport() {
+  imp = imp || { text: '', events: null, skipped: [], chosen: new Set(), people: prefs.filter.length ? [...prefs.filter] : [], category: prefs.cat || 'other', prefix: '', remind: '60', source: '' };
+  renderImport();
+}
+function renderImport() {
+  const cats = L.CATEGORIES.map(c => `<option value="${c.id}" ${imp.category === c.id ? 'selected' : ''}>${c.icon} ${esc(c.name)}</option>`).join('');
+  const preview = imp.events ? `
+    <div class="sec-head"><h3>${imp.events.length} event${imp.events.length === 1 ? '' : 's'} found${imp.skipped.length ? ` · ${imp.skipped.length} line${imp.skipped.length === 1 ? '' : 's'} skipped` : ''}</h3>
+      <span class="row"><button type="button" class="link" data-act="import-all" data-on="1">All</button><button type="button" class="link" data-act="import-all" data-on="">None</button></span></div>
+    <div class="import-list">${imp.events.map((e, i) => `<label class="import-row ${imp.chosen.has(i) ? 'on' : ''}"><input type="checkbox" ${imp.chosen.has(i) ? 'checked' : ''} data-change="import-pick" data-i="${i}"/>
+      <span><b>${esc(L.fmtDate(e.date, { weekday: 'short', month: 'short', day: 'numeric' }))}</b> ${esc(e.allDay ? 'All day' : L.fmtTime(e.start) + (e.end ? '–' + L.fmtTime(e.end) : ''))}<br>${esc(importTitle(e))}${e.location ? ` <span class="muted">@ ${esc(e.location)}</span>` : ''}${e.repeat ? ' <span class="rep">↻</span>' : ''}${e.warn ? `<br><span class="import-warn">⚠️ ${esc(e.warn)}</span>` : ''}</span></label>`).join('')}</div>
+    ${imp.skipped.length ? `<details class="adv"><summary>Lines I couldn't read (${imp.skipped.length})</summary><ul class="tiny muted">${imp.skipped.slice(0, 12).map(l => `<li>${esc(l)}</li>`).join('')}</ul><p class="tiny muted">Each line needs a date. Add one, or enter those by hand.</p></details>` : ''}` : '';
+  openModal(`<form class="editor" data-submit="import-add">
+    <div class="modal-head"><h2>📥 Import a schedule</h2><button type="button" class="icon-btn" data-act="close" aria-label="Close">✕</button></div>
+    <div class="modal-body">
+      <p class="tiny muted">Paste a season from an email or a league site — one game per line — or choose a <b>.ics</b> file from TeamSnap, SportsEngine or a school calendar. Nothing is added until you press the button at the bottom.</p>
+      <label class="field"><span class="label">Paste the schedule</span><textarea class="input" rows="6" placeholder="Sat Sep 20  10:00 AM  vs Ajax United @ Kinsmen Park Field 3&#10;Sun Sep 28  1:30 PM  at Whitby Wolves @ Iroquois Park" data-input="import-text">${esc(imp.text)}</textarea></label>
+      <div class="row wrap"><label class="btn sm">📄 Choose .ics file<input type="file" accept=".ics,text/calendar" hidden data-change="import-file"/></label>
+        <button type="button" class="btn sm primary" data-act="import-parse">Preview</button>${imp.source ? `<span class="tiny muted">from ${esc(imp.source)}</span>` : ''}</div>
+      <div class="grid2">
+        <label class="field"><span class="label">Activity</span><select class="select" data-change="import-field" data-k="category">${cats}</select></label>
+        <label class="field"><span class="label">🔔 Reminder</span><select class="select" data-change="import-field" data-k="remind">${L.REMIND_TIMED.map(([v, l]) => `<option value="${v}" ${imp.remind === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </div>
+      <label class="field"><span class="label">Add to the front of every title (optional)</span><input class="input" placeholder="e.g. Soccer" value="${esc(imp.prefix)}" data-input="import-field" data-k="prefix"/></label>
+      <div class="field"><span class="label">Who's it for?</span><div class="chips">
+        <button type="button" class="chip ${!imp.people.length ? 'on' : ''}" data-act="import-who" data-id="">👨‍👩‍👦 Everyone</button>
+        ${people().map(p => `<button type="button" class="chip person ${imp.people.includes(p.id) ? 'on' : ''}" data-act="import-who" data-id="${p.id}" style="--pc:${p.color}"><i class="dot"></i>${esc(p.name)}</button>`).join('')}</div></div>
+      ${preview}
+    </div>
+    <div class="modal-foot"><span class="tiny muted">${imp.events ? `${imp.chosen.size} selected` : ''}</span>
+      <button class="btn primary" ${imp.events && imp.chosen.size ? '' : 'disabled'}>Add ${imp.events ? imp.chosen.size : ''} event${imp.chosen.size === 1 ? '' : 's'}</button></div>
+  </form>`, { wide: true });
+}
+const importTitle = e => (imp.prefix && !e.title.toLowerCase().includes(imp.prefix.toLowerCase()) ? imp.prefix + ' ' + e.title : e.title).trim();
+function runImportParse(text, source) {
+  imp.text = text; imp.source = source || '';
+  const isIcs = /BEGIN:VCALENDAR/i.test(text);
+  const res = isIcs ? parseIcs(text) : parseSchedule(text, { defaultTitle: '' });
+  imp.events = res.events; imp.skipped = res.skipped;
+  imp.chosen = new Set(res.events.map((_, i) => i));
+  renderImport();
+  if (!res.events.length) toast("Nothing I could read — every line needs a date");
+}
+function addImported() {
+  const who = me()?.name || '';
+  const batch = [...imp.chosen].sort((a, b) => a - b).map(i => imp.events[i]).filter(Boolean);
+  const added = batch.map(e => store.put('event', {
+    id: '', title: importTitle(e), category: imp.category, people: [...imp.people], date: e.date,
+    endDate: e.endDate || '', allDay: !!e.allDay, start: e.start || '', end: e.allDay ? '' : (e.end || ''),
+    location: e.location || '', notes: '', bring: L.catById(imp.category).bring || '',
+    repeat: e.repeat && e.repeat.freq ? { freq: e.repeat.freq, interval: e.repeat.interval || 1, days: e.repeat.days || [], until: e.repeat.until || '' } : { freq: 'none', interval: 1, days: [], until: '' },
+    exdates: e.exdates || [], dropoff: '', pickup: '', countdown: false, remind: e.allDay ? '' : imp.remind, createdBy: who,
+  }));
+  closeModal(true);
+  const ids = added.map(a => a.id);
+  toast(`Added ${added.length} event${added.length === 1 ? '' : 's'}`, () => { ids.forEach(id => store.remove(id)); renderPage(); });
+  if (added.length) { prefs.cursor = added[0].date; savePrefs(); }
+  imp = null;
+  renderPage();
 }
 
 /* =====================================================================
@@ -1360,6 +1427,27 @@ function routineForm(rt = null, personId = '') {
   </form>`);
 }
 let notifyError = '';
+let feedUrl = '';
+// Subscribe from Apple/Google Calendar — a private, read-only link
+function calendarFeedSection() {
+  if (!store.isShared) return '';
+  const link = feedUrl;
+  return `<section class="card pad">
+    <div class="sec-head"><h2>📅 Show it in your phone's calendar</h2></div>
+    <p class="muted tiny">A private, read-only link that Apple Calendar, Google Calendar or Outlook can subscribe to, so family events sit beside everything else on the phone — with the calendar app's own alerts. It only ever shows events; lists, notes and the PIN stay out of it.</p>
+    ${link ? `<div class="feed-links">
+        <div class="feed-row"><b>👨‍👩‍👦 Everyone</b><input class="input sm" readonly value="${esc(link)}" onclick="this.select()"/><button class="btn sm" data-act="feed-copy" data-url="${esc(link)}">📋 Copy</button></div>
+        ${people().map(p => { const u = link + '&who=' + p.id; return `<div class="feed-row" style="--pc:${p.color}"><b>${esc(p.name)} only</b><input class="input sm" readonly value="${esc(u)}" onclick="this.select()"/><button class="btn sm" data-act="feed-copy" data-url="${esc(u)}">📋 Copy</button></div>`; }).join('')}
+      </div>
+      <details class="how"><summary>How to subscribe (1 minute per phone)</summary>
+        <ul class="steps"><li><b>iPhone:</b> Settings → Apps → Calendar → Calendar Accounts → Add Account → Other → <b>Add Subscribed Calendar</b> → paste the link. Then Calendar → the new calendar → turn alerts on.</li>
+        <li><b>Google Calendar (Android/desktop):</b> calendar.google.com → Other calendars <b>+</b> → <b>From URL</b> → paste. Google only refreshes subscribed links every several hours, so it lags — Apple checks far more often.</li>
+        <li><b>Outlook:</b> Add calendar → Subscribe from web → paste.</li></ul>
+        <p class="tiny muted">Anyone with the link can read the calendar, so treat it like a house key: share it inside the family only. If it ever gets out, make a new one below.</p></details>
+      <div class="row wrap"><button class="btn sm ghost" data-act="feed-new">↻ Make a new link</button></div>`
+      : `<button class="btn" data-act="feed-link">Get the calendar link</button>`}
+  </section>`;
+}
 function notifyStatus() {
   if (!store.isShared) return `<div class="note-box">🧪 Phone reminders need the shared Google setup. In preview mode you'll still see reminders while the app is open.</div>`;
   if (store.remindersRunning === true) return `<p class="ok-line">✅ Reminder timer is running — checks every 5 minutes, even when every phone is closed.</p>`;
@@ -1388,6 +1476,7 @@ function notificationsSection() {
         </details>
         <div class="field"><span class="label">Send ${esc(p.name)} reminders for</span><div class="chips">${s.people.map(q => `<button class="chip person sm-chip ${follow.includes(q.id) ? 'on' : ''}" data-act="nt-follow" data-id="${p.id}" data-p="${q.id}" style="--pc:${q.color}">${esc(q.name)}</button>`).join('')}</div></div>
         <div class="row wrap"><label class="toggle sm"><input type="checkbox" data-change="nt-summary" data-id="${p.id}" ${n.summary ? 'checked' : ''}/><span></span>☀️ Morning summary at</label><select class="select sm auto" data-change="nt-field" data-id="${p.id}" data-k="summaryTime">${['06:00', '06:30', '07:00', '07:30', '08:00'].map(t => `<option value="${t}" ${(n.summaryTime || '07:00') === t ? 'selected' : ''}>${L.fmtTime(t)}</option>`).join('')}</select></div>
+        <div class="row wrap"><label class="toggle sm"><input type="checkbox" data-change="nt-weekly" data-id="${p.id}" ${n.weekly ? 'checked' : ''}/><span></span>🗓️ Week ahead on</label><select class="select sm auto" data-change="nt-field" data-id="${p.id}" data-k="weeklyDay">${DAY_NAMES.map((d, i) => `<option value="${i}" ${Number(n.weeklyDay ?? 0) === i ? 'selected' : ''}>${d}</option>`).join('')}</select><select class="select sm auto" data-change="nt-field" data-id="${p.id}" data-k="weeklyTime">${['17:00', '18:00', '19:00', '20:00'].map(t => `<option value="${t}" ${(n.weeklyTime || '18:00') === t ? 'selected' : ''}>${L.fmtTime(t)}</option>`).join('')}</select></div>
       </div>`; }).join('')}</div>
     <div class="row wrap device-notify"><span>💻 This device: ${perm === 'granted' ? '✅ pop-up alerts on while the app is open' : perm === 'denied' ? '🚫 pop-ups blocked in browser settings' : perm === 'unsupported' ? 'pop-ups not supported here (use ntfy)' : 'pop-up alerts are off'}</span>${perm === 'default' ? '<button class="btn sm" data-act="allow-notify">Allow pop-ups</button>' : ''}</div>
     <details class="adv"><summary>Advanced</summary><label class="field"><span class="label">ntfy server</span><input class="input sm" value="${esc(s.ntfyServer || 'https://ntfy.sh')}" data-change="ntfy-server"/></label></details>
@@ -1447,6 +1536,7 @@ function viewSettings() {
 
   ${checklistSettings()}
   ${notificationsSection()}
+  ${calendarFeedSection()}
 
   <section class="card pad">
     <div class="sec-head"><h2>🔄 Sharing & sync</h2></div>
@@ -1468,7 +1558,9 @@ function viewSettings() {
     <div class="sec-head"><h2>💾 Backup</h2></div>
     <p class="muted tiny">${store.isShared ? 'Your data also lives in your Google Sheet. ' : ''}Download a copy any time, or restore one.</p>
     <div class="row wrap"><button class="btn" data-act="export">⬇️ Export backup</button><label class="btn">⬆️ Import backup<input type="file" accept="application/json,.json" data-change="import" hidden/></label>
+    ${store.isShared ? '<button class="btn" data-act="backup-now">☁️ Back up to Drive now</button>' : ''}
     <button class="btn ghost" data-act="load-sample">✨ Add sample events</button></div>
+    ${store.isShared ? '<p class="tiny muted">A copy is saved to <b>Google Drive → Family Hub Backups</b> every Sunday night (the last 8 are kept), and old checklist history is tidied up on the 1st of each month so syncing stays quick.</p>' : ''}
   </section>
   <p class="center tiny muted">Family Hub · made with ❤️ for ${esc(s.familyName)} · keyboard: N new · T today · ← → move · M/W/D views</p>`;
 }
@@ -1543,6 +1635,35 @@ const actions = {
     finally { el.disabled = false; }
   },
   'allow-notify': async () => { try { await Notification.requestPermission(); } catch { /* ignore */ } renderPage(); },
+  // import
+  'import-open': () => openImport(),
+  'import-parse': () => runImportParse($('[data-input="import-text"]')?.value || '', ''),
+  'import-who': el => { const id = el.dataset.id; if (!id) imp.people = []; else imp.people = imp.people.includes(id) ? imp.people.filter(x => x !== id) : [...imp.people, id]; if (imp.people.length >= people().length) imp.people = []; renderImport(); },
+  'import-all': el => { imp.chosen = el.dataset.on ? new Set(imp.events.map((_, i) => i)) : new Set(); renderImport(); },
+  // calendar feed + backups
+  'feed-link': async (el) => {
+    if (!store.isShared || !store.token) return toast('This needs the shared Google setup');
+    el.disabled = true;
+    const res = await store.call({ action: 'feedLink', token: store.token, ...store.urls() });
+    el.disabled = false;
+    if (!res.ok) return toast(res.error === 'unknown_action' ? 'Update your Google script first (see SETUP.md)' : 'Could not get the link: ' + (res.message || res.error));
+    feedUrl = res.url || (res.key ? store.apiUrl + '?feed=' + res.key : ''); renderPage();
+  },
+  'feed-new': async () => {
+    const ok = await confirmBox('Make a new calendar link?', 'The old link stops working — every phone that subscribed has to add the new one.', [{ label: 'Make a new link', value: 'yes', kind: 'danger' }]);
+    if (!ok) return;
+    const res = await store.call({ action: 'feedLink', token: store.token, regenerate: true, ...store.urls() });
+    if (!res.ok) return toast('Could not do that: ' + (res.message || res.error));
+    feedUrl = res.url || (res.key ? store.apiUrl + '?feed=' + res.key : ''); toast('New link created — re-subscribe on each phone'); renderPage();
+  },
+  'feed-copy': el => { const url = el.dataset.url; (navigator.clipboard?.writeText(url) || Promise.reject()).then(() => toast('Link copied')).catch(() => toast(url)); },
+  'backup-now': async (el) => {
+    if (!store.isShared || !store.token) return toast('This needs the shared Google setup');
+    el.disabled = true; toast('Backing up…');
+    const res = await store.call({ action: 'backupNow', token: store.token, ...store.urls() });
+    el.disabled = false;
+    toast(res.ok ? 'Saved to Google Drive → Family Hub Backups' : (res.error === 'unknown_action' ? 'Update your Google script first' : 'Backup failed: ' + (res.message || res.error)));
+  },
   // meals extras
   'new-picks': () => { const t = L.today(); prefs.pickShuffle = { date: t, n: (prefs.pickShuffle?.date === t ? prefs.pickShuffle.n : 0) + 1 }; savePrefs(); renderPage(); },
   'meal-toggle': el => { prefs[el.dataset.k] = !prefs[el.dataset.k]; savePrefs(); renderPage(); },
@@ -1650,6 +1771,10 @@ const actions = {
 const changes = {
   'nt-field': el => { const k = el.dataset.k; const v = el.value.trim(); if (k === 'ntfy' && v && !/^[A-Za-z0-9_-]{1,64}$/.test(v)) return toast('Topic names can only use letters, numbers, - and _'); updateNotify(el.dataset.id, { [k]: v }); toast('Saved'); },
   'nt-summary': el => { const p = personById(el.dataset.id); updateNotify(el.dataset.id, { summary: el.checked, summaryTime: p?.notify?.summaryTime || '07:00' }); toast(el.checked ? 'Morning summary on' : 'Morning summary off'); },
+  'nt-weekly': el => { const p = personById(el.dataset.id); updateNotify(el.dataset.id, { weekly: el.checked, weeklyDay: p?.notify?.weeklyDay ?? 0, weeklyTime: p?.notify?.weeklyTime || '18:00' }); toast(el.checked ? 'Week-ahead email on' : 'Week-ahead email off'); },
+  'import-pick': el => { const i = Number(el.dataset.i); if (el.checked) imp.chosen.add(i); else imp.chosen.delete(i); el.closest('.import-row')?.classList.toggle('on', el.checked); const foot = $('.modal-foot .tiny'); if (foot) foot.textContent = `${imp.chosen.size} selected`; const btn = $('.modal-foot .btn'); if (btn) { btn.disabled = !imp.chosen.size; btn.textContent = `Add ${imp.chosen.size} event${imp.chosen.size === 1 ? '' : 's'}`; } },
+  'import-field': el => { imp[el.dataset.k] = el.value; if (el.dataset.k !== 'prefix') renderImport(); },
+  'import-file': async el => { const f = el.files?.[0]; if (!f) return; try { runImportParse(await f.text(), f.name); } catch { toast("Couldn't read that file"); } },
   'ntfy-server': el => { const v = el.value.trim().replace(/\/$/, ''); if (v && !/^https:\/\//.test(v)) return toast('Use an https:// address'); saveSettings({ ntfyServer: v || 'https://ntfy.sh' }); toast('Saved'); },
   'discover-area': el => { discover.area = el.value; discover.list = null; loadDiscover(); },
   'filter-cat': el => { prefs.cat = el.value; savePrefs(); renderPage(); },
@@ -1678,10 +1803,13 @@ const changes = {
 };
 const inputs = {
   'ed-field': el => { draft.ev[el.dataset.field] = el.value; },
+  'import-text': el => { if (imp) imp.text = el.value; },
+  'import-field': el => { if (imp) imp[el.dataset.k] = el.value; },
   'list-search': el => { listSearch = el.value; clearTimeout(inputs.t); inputs.t = setTimeout(() => { const pos = el.selectionStart; renderPage(); const n = $('[data-input="list-search"]'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 250); },
   'meal-search': el => { prefs.mealSearch = el.value; clearTimeout(inputs.t); inputs.t = setTimeout(() => { savePrefs(); const pos = el.selectionStart; renderPage(); const n = $('[data-input="meal-search"]'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } }, 250); },
 };
 const submits = {
+  'import-add': () => addImported(),
   'save-routine': (f) => {
     const fd = new FormData(f); const prev = f.dataset.id ? store.get(f.dataset.id) : null;
     const title = String(fd.get('title') || '').trim(); if (!title) return toast('Give it a name');

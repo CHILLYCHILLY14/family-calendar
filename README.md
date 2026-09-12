@@ -32,6 +32,12 @@ A shared family calendar and dashboard for **Kevin, Kate, Luke and Max** — hos
 - Reminders on phones even when the app is closed — emailed by Google from your own account, with a one-tap **✓ Mark it done** link — plus an optional 7am summary of the whole day
 - Per-event reminders (1 hour before games by default), pop-ups while the app is open, and per-person control of whose reminders you receive
 
+**Getting it onto phones and into other calendars**
+- A private, read-only subscription link (whole family, or one person) for Apple Calendar, Google Calendar and Outlook — events only, revocable in one tap
+- Import a whole season by pasting a schedule or picking a team `.ics` file, with a checkbox preview and one-tap undo
+- A "week ahead" email on Sunday evening with the schedule, who's driving and the dinner plan
+- Automatic weekly backups to Google Drive and monthly tidying of old history
+
 **Needs & Lists** — Groceries, Clothes, School, Sports Gear, Household, Other; for-whom, quantity, "needed soon", check off, undo; shared clothing-size cards
 
 **Picky Eats** — 60 kid-friendly recipes across 🇨🇦 Canadian, 🇺🇸 American, 🇹🇭 Thai, 🇨🇳 Chinese, 🇯🇵 Japanese, 🇮🇹 Italian, 🇲🇽 Mexican, each with ingredients, steps, picky-eater tricks and a grown-up upgrade — including 🥗 healthy options and 📦 meal-prep batches. Every recipe carries storing & reheating notes: fridge life, freezer life, how to pack it, and how to reheat it properly. Daily feed that changes every day (🔄 for more), weekly dinner planner, Sunday prep-plan builder with one combined shopping list, per-kid 👍 likes, one-tap "add ingredients to groceries", your own recipes, and 🌍 Discover for endless fresh ideas from a free online library.

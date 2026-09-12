@@ -122,6 +122,41 @@ Use **Send … reminders for** to choose whose events each person hears about �
 
 ---
 
+## Put the calendar on everyone's phone (subscription link)
+
+**Settings → 📅 Show it in your phone's calendar → Get the calendar link.** You get one link for the whole family and one per person.
+
+- **iPhone:** Settings → Apps → Calendar → Calendar Accounts → Add Account → Other → **Add Subscribed Calendar** → paste the link. Then in Calendar, tap the new calendar and turn its alerts on. iPhone re-checks it often (you can set the interval).
+- **Google Calendar:** calendar.google.com → *Other calendars* **+** → **From URL** → paste. Google only refreshes subscribed links every few hours, sometimes a day, so treat it as a view, not a reminder.
+- **Outlook:** Add calendar → Subscribe from web → paste.
+
+**Is it safe?** The link carries a long random key that has nothing to do with your PIN, it is read-only, and it contains events only — no lists, notes, meal plans, checklist or settings. Anyone who has the link can read the family schedule, so share it inside the family only. **↻ Make a new link** kills the old one instantly if it ever leaks.
+
+---
+
+## Import a whole season at once
+
+On the **Calendar** page, **📥 Import schedule**:
+
+- **Paste** a schedule from an email or a league site — one game per line. It understands the usual shapes: `Sat Sep 20 10:00 AM vs Ajax @ Kinsmen Field 3`, `2026-09-28, 13:30, Practice`, `10/4 9am vs Oshawa`. A line with no time becomes an all-day entry; a line with no date is listed as skipped so you can see what it missed.
+- **Or pick a `.ics` file** exported from TeamSnap, SportsEngine, a school board or another calendar — repeats, skipped dates and all-day trips come across intact.
+- Set the activity, who it's for and a reminder once, and it applies to everything you're importing.
+- You see every event with a checkbox **before** anything is added, and if a line says "Sat" but the date is a Sunday it tells you — usually a wrong year in the paste.
+- Added the wrong batch? The **Undo** button on the toast removes the whole import.
+
+---
+
+## Backups and tidying (automatic)
+
+Once the script is set up it also:
+
+- saves a full JSON backup to **Google Drive → Family Hub Backups** every Sunday night, keeping the last 8;
+- tidies up on the 1st of each month — checklist ticks older than 120 days and deleted rows older than 60 days — after taking a fresh backup first, so syncing stays quick as the years add up.
+
+**Settings → Backup → ☁️ Back up to Drive now** does it on demand. Your own **⬇️ Export backup** still works too.
+
+---
+
 ## Add it to everyone's home screen
 
 - **iPhone/iPad:** open the GitHub link in **Safari** → **Share** → **Add to Home Screen**.

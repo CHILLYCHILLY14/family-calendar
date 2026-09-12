@@ -35,7 +35,12 @@ function doGet(e) {
       (appUrl ? '<p style="margin-top:24px"><a href="' + appUrl + '" style="color:#2563eb">Open the family calendar</a></p>' : '') + '</div>')
       .setTitle('Family Hub');
   }
-  return json_({ ok: true, app: 'family-hub', version: 4, time: Date.now() });
+  // Private calendar feed, for subscribing from Apple/Google Calendar
+  if (p.feed) {
+    if (p.feed !== feedKey_()) return ContentService.createTextOutput('Not found').setMimeType(ContentService.MimeType.TEXT);
+    return ContentService.createTextOutput(calendarFeed_(p.who || '')).setMimeType(ContentService.MimeType.ICAL);
+  }
+  return json_({ ok: true, app: 'family-hub', version: 5, time: Date.now() });
 }
 
 function doPost(e) {
@@ -53,6 +58,8 @@ function doPost(e) {
       case 'ping':   return json_({ ok: true, auth: validToken_(body.token), time: Date.now(), reminders: remindersRunning_(), lastSent: PropertiesService.getScriptProperties().getProperty('LAST_SENT') || '' });
       case 'done':   return json_(doneFromNotification_(body));
       case 'testNotify': return json_(testNotify_(body));
+      case 'feedLink': return json_(feedLink_(body));
+      case 'backupNow': return json_(backupNow_(body));
       default:       return json_({ ok: false, error: 'unknown_action' });
     }
   } catch (err) {
@@ -218,6 +225,11 @@ function rememberUrls_(body) {
 
 function remindersRunning_() {
   try { return ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'checkReminders'); } catch (e) { return false; }
+}
+
+function readRows_(sh) {
+  const last = sh.getLastRow();
+  return last > 1 ? sh.getRange(2, 1, last - 1, HEADERS.length).getValues() : [];
 }
 
 function loadData_() {
@@ -406,7 +418,198 @@ function checkReminders_(nowMs) {
     send_(s, [p], { title: '☀️ Good morning, ' + p.name + '!', body: lines.length ? lines.join('\n') : 'Nothing on the calendar today — enjoy!', tags: ['sunny'], priority: 3 });
     sent.push({ kind: 'summary', id: p.id, date: now.date });
   });
+
+  // 4) "week ahead" digest (Sunday evening by default)
+  people.forEach(p => {
+    const n = p.notify || {};
+    if (!n.weekly || !(n.ntfy || n.email)) return;
+    if (dow_(now.date) !== (n.weeklyDay == null ? 0 : Number(n.weeklyDay))) return;
+    if (!due(dayIdx_(now.date) * 1440 + (toMin_(n.weeklyTime || '18:00') || 1080))) return;
+    send_(s, [p], { title: '🗓️ The week ahead', body: weekAhead_(data, p, names), tags: ['calendar'], priority: 3 });
+    sent.push({ kind: 'weekly', id: p.id, date: now.date });
+  });
   return sent;
+}
+
+// Plain-text digest of the next seven days for one person
+function weekAhead_(data, p, names) {
+  const n = p.notify || {};
+  const follow = n.follow && n.follow.length ? n.follow : [p.id];
+  const tz = (data.settings.timezone) || Session.getScriptTimeZone() || 'America/Toronto';
+  const start = localNow_(tz, Date.now()).date;
+  const lines = [];
+  const driving = {};
+  for (let k = 1; k <= 7; k++) {
+    const date = addDays_(start, k);
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const todays = (data.items.event || [])
+      .filter(ev => occurs_(ev, date) && (!ev.people || !ev.people.length || ev.people.some(id => follow.indexOf(id) >= 0)))
+      .sort((a, b) => (a.allDay || !a.start ? -1 : toMin_(a.start)) - (b.allDay || !b.start ? -1 : toMin_(b.start)));
+    const plan = (data.items.mealplan || []).filter(m => m.date === date)[0];
+    if (!todays.length && !plan) continue;
+    lines.push('', days[dow_(date)] + ' ' + date.slice(5));
+    todays.forEach(ev => {
+      const who = names(ev.people);
+      const ride = [ev.dropoff && 'drop-off ' + names([ev.dropoff]), ev.pickup && 'pick-up ' + names([ev.pickup])].filter(Boolean).join(', ');
+      [ev.dropoff, ev.pickup].forEach(id => { if (id) driving[id] = (driving[id] || 0) + 1; });
+      lines.push('  • ' + (ev.allDay || !ev.start ? 'All day' : fmtTime_(ev.start)) + ' ' + ev.title + ' (' + who + ')' + (ev.location ? ' @ ' + ev.location : '') + (ride ? ' — ' + ride : ''));
+    });
+    if (plan && (plan.text || plan.recipeName)) lines.push('  🍽️ ' + (plan.text || plan.recipeName));
+  }
+  const drivers = Object.keys(driving);
+  if (drivers.length) lines.push('', '🚗 Driving: ' + drivers.map(id => names([id]) + ' ×' + driving[id]).join(' · '));
+  const needs = (data.items.need || []).filter(x => !x.done);
+  if (needs.length) lines.push('🛒 ' + needs.length + ' item' + (needs.length > 1 ? 's' : '') + ' on the lists');
+  return lines.length ? ('Here\'s what\'s coming up:' + lines.join('\n')) : 'Nothing booked for the next seven days — a rare quiet week!';
+}
+
+/* ---------- private calendar feed (subscribe from Apple/Google Calendar) ---------- */
+
+function feedKey_() {
+  const props = PropertiesService.getScriptProperties();
+  let key = props.getProperty('FEED_KEY');
+  if (!key) { key = Utilities.getUuid().replace(/-/g, ''); props.setProperty('FEED_KEY', key); }
+  return key;
+}
+
+function feedLink_(body) {
+  if (!validToken_(body.token)) return { ok: false, error: 'auth' };
+  rememberUrls_(body);
+  const props = PropertiesService.getScriptProperties();
+  if (body.regenerate) props.deleteProperty('FEED_KEY');
+  const webUrl = props.getProperty('WEB_URL') || '';
+  const key = feedKey_();
+  return { ok: true, key: key, url: webUrl ? webUrl + '?feed=' + key : '' };
+}
+
+function icsEscape_(text) {
+  return String(text || '').replace(/\\/g, '\\\\').replace(/\r\n|\r|\n/g, '\\n').replace(/[,;]/g, function (c) { return '\\' + c; });
+}
+function icsFold_(line) {
+  const out = [];
+  let rest = line;
+  while (rest.length > 73) { out.push(rest.slice(0, 73)); rest = ' ' + rest.slice(73); }
+  out.push(rest);
+  return out.join('\r\n');
+}
+
+function calendarFeed_(who) {
+  const data = loadData_();
+  const s = data.settings;
+  const tz = s.timezone || Session.getScriptTimeZone() || 'America/Toronto';
+  const people = s.people || [];
+  const byId = {}; people.forEach(p => { byId[p.id] = p; });
+  const names = ids => (ids && ids.length ? ids.map(id => byId[id] ? byId[id].name : '').filter(String).join(', ') : 'Everyone');
+  const stamp = Utilities.formatDate(new Date(), 'UTC', "yyyyMMdd'T'HHmmss'Z'");
+  const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Family Hub//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'X-WR-CALNAME:' + icsEscape_((s.familyName || 'Family Hub') + (who && byId[who] ? ' — ' + byId[who].name : '')),
+    'X-WR-TIMEZONE:' + tz, 'REFRESH-INTERVAL;VALUE=DURATION:PT1H', 'X-PUBLISHED-TTL:PT1H'];
+  (data.items.event || []).forEach(ev => {
+    if (!ev || !ev.date) return;
+    if (who && ev.people && ev.people.length && ev.people.indexOf(who) < 0) return;
+    const allDay = ev.allDay || !ev.start;
+    const d = ev.date.replace(/-/g, '');
+    out.push('BEGIN:VEVENT', 'UID:' + ev.id + '@family-hub', 'DTSTAMP:' + stamp);
+    if (allDay) {
+      out.push('DTSTART;VALUE=DATE:' + d, 'DTEND;VALUE=DATE:' + addDays_(ev.endDate || ev.date, 1).replace(/-/g, ''));
+    } else {
+      const endMin = toMin_(ev.end) != null ? toMin_(ev.end) : toMin_(ev.start) + 60;
+      const endDate = endMin >= 1440 ? addDays_(ev.date, 1) : ev.date;
+      out.push('DTSTART;TZID=' + tz + ':' + d + 'T' + ev.start.replace(':', '') + '00',
+        'DTEND;TZID=' + tz + ':' + endDate.replace(/-/g, '') + 'T' + (ev.end || fmtHm_(endMin % 1440)).replace(':', '') + '00');
+    }
+    const r = ev.repeat;
+    if (r && r.freq && r.freq !== 'none') {
+      let rule = 'RRULE:FREQ=' + String(r.freq).toUpperCase() + ';INTERVAL=' + (r.interval || 1) + ';WKST=SU';
+      if (r.freq === 'weekly' && r.days && r.days.length) rule += ';BYDAY=' + r.days.map(i => ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'][i]).join(',');
+      if (r.until) rule += ';UNTIL=' + r.until.replace(/-/g, '') + (allDay ? '' : 'T235959');
+      out.push(rule);
+      if (ev.exdates && ev.exdates.length) {
+        out.push(allDay
+          ? 'EXDATE;VALUE=DATE:' + ev.exdates.map(x => x.replace(/-/g, '')).join(',')
+          : 'EXDATE;TZID=' + tz + ':' + ev.exdates.map(x => x.replace(/-/g, '') + 'T' + ev.start.replace(':', '') + '00').join(','));
+      }
+    }
+    out.push('SUMMARY:' + icsEscape_(ev.title || 'Family event'));
+    if (ev.location) out.push('LOCATION:' + icsEscape_(ev.location));
+    const desc = [names(ev.people), ev.bring ? 'Bring: ' + ev.bring : '', ev.dropoff && byId[ev.dropoff] ? 'Drop-off: ' + byId[ev.dropoff].name : '', ev.pickup && byId[ev.pickup] ? 'Pick-up: ' + byId[ev.pickup].name : '', ev.notes || ''].filter(String).join('\n');
+    if (desc) out.push('DESCRIPTION:' + icsEscape_(desc));
+    const mins = ev.remind === '' || ev.remind == null ? null : Number(ev.remind);
+    if (mins != null && !isNaN(mins) && !allDay) out.push('BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsEscape_(ev.title || 'Reminder'), 'TRIGGER:-PT' + Math.max(0, mins) + 'M', 'END:VALARM');
+    out.push('END:VEVENT');
+  });
+  out.push('END:VCALENDAR');
+  return out.map(icsFold_).join('\r\n') + '\r\n';
+}
+function fmtHm_(min) { return pad_(Math.floor(min / 60)) + ':' + pad_(min % 60); }
+
+/* ---------- backups & tidying ---------- */
+
+function backupFolder_() {
+  const name = 'Family Hub Backups';
+  const it = DriveApp.getFoldersByName(name);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
+}
+
+/** Weekly trigger: drop a JSON copy of everything into Drive and keep the last 8. */
+function weeklyBackup() {
+  const sh = sheet_();
+  const rows = readRows_(sh);
+  const items = rows.filter(r => r[0] && !r[4] && r[2]).map(r => {
+    let data = null; try { data = JSON.parse(r[2]); } catch (e) { data = null; }
+    return { id: r[0], type: r[1], data: data };
+  });
+  const folder = backupFolder_();
+  const stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Toronto', 'yyyy-MM-dd');
+  folder.createFile('family-hub-backup-' + stamp + '.json', JSON.stringify({ app: 'family-hub', exportedAt: new Date().toISOString(), items: items }, null, 2), 'application/json');
+  // keep the newest 8
+  const files = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) files.push(it.next());
+  files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+  files.slice(8).forEach(f => f.setTrashed(true));
+  PropertiesService.getScriptProperties().setProperty('LAST_BACKUP', String(Date.now()));
+  return { ok: true, kept: Math.min(files.length + 1, 8) };
+}
+
+function backupNow_(body) {
+  if (!validToken_(body.token)) return { ok: false, error: 'auth' };
+  try { const r = weeklyBackup(); return { ok: true, kept: r.kept, at: Date.now() }; }
+  catch (e) { return { ok: false, error: 'backup_failed', message: String(e).slice(0, 200) }; }
+}
+
+/**
+ * Monthly trigger: back up first, then remove rows nobody needs any more —
+ * deleted tombstones older than 60 days and checklist history older than 120 days.
+ */
+function monthlyCleanup() {
+  weeklyBackup();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(25000);
+  try {
+    const sh = sheet_();
+    const rows = readRows_(sh);
+    const tombstoneCutoff = Date.now() - 60 * 86400000;
+    const tz = Session.getScriptTimeZone() || 'America/Toronto';
+    const logCutoff = addDays_(localNow_(tz, Date.now()).date, -120);
+    const keep = rows.filter(r => {
+      if (!r[0]) return false;
+      if (r[4]) return Number(r[3]) > tombstoneCutoff;                     // old tombstone
+      if (r[1] === 'routineLog') {
+        let d = ''; try { d = (JSON.parse(r[2]) || {}).date || ''; } catch (e) { d = ''; }
+        return !d || d >= logCutoff;                                       // old checklist history
+      }
+      return true;
+    });
+    const removed = rows.length - keep.length;
+    if (removed > 0) {
+      if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, HEADERS.length).clearContent();
+      if (keep.length) sh.getRange(2, 1, keep.length, HEADERS.length).setValues(keep);
+      SpreadsheetApp.flush();
+    }
+    PropertiesService.getScriptProperties().setProperty('LAST_CLEANUP', JSON.stringify({ at: Date.now(), removed: removed, rows: keep.length }));
+    return { ok: true, removed: removed, rows: keep.length };
+  } finally { lock.releaseLock(); }
 }
 
 // "✓ Done" tapped on a phone notification
@@ -448,7 +651,11 @@ function setup() {
   if (!familyPin_()) throw new Error('Add FAMILY_PIN (4–12 digits) under Project Settings → Script properties first.');
   sheet_();
   secret_();
-  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'checkReminders').forEach(t => ScriptApp.deleteTrigger(t));
+  feedKey_();
+  const mine = ['checkReminders', 'weeklyBackup', 'monthlyCleanup'];
+  ScriptApp.getProjectTriggers().filter(t => mine.indexOf(t.getHandlerFunction()) >= 0).forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('checkReminders').timeBased().everyMinutes(CHECK_EVERY_MINUTES).create();
+  ScriptApp.newTrigger('weeklyBackup').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(3).create();
+  ScriptApp.newTrigger('monthlyCleanup').timeBased().onMonthDay(1).atHour(4).create();
   Logger.log('Ready. Reminders are checked every ' + CHECK_EVERY_MINUTES + ' minutes. Now Deploy → Manage deployments → Edit → New version.');
 }

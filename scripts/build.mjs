@@ -1,5 +1,5 @@
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
-const publicFiles = ['index.html', 'app.js', 'store.js', 'lib.js', 'meals.js', 'config.js', 'styles.css', 'sw.js', 'manifest.webmanifest', '.nojekyll', 'assets'];
+const publicFiles = ['index.html', 'app.js', 'store.js', 'lib.js', 'meals.js', 'import.js', 'config.js', 'styles.css', 'sw.js', 'manifest.webmanifest', '.nojekyll', 'assets'];
 await rm('dist', { recursive: true, force: true });
 await mkdir('dist');
 for (const file of publicFiles) await cp(file, 'dist/' + file, { recursive: true });

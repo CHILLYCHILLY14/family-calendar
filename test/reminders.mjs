@@ -122,11 +122,95 @@ test('email reminders carry a one-tap Done link that works from the inbox', () =
   assert.match(be.get({ ...params, sig: 'bad' }).html, /not valid/);
 });
 
-test('setup installs exactly one timer; test button needs the PIN token', () => {
+test('the calendar feed needs its key, shows events only, and can be rotated', () => {
+  const be = makeBackend();
+  const token = family(be, [
+    { id: 'ev_vb', type: 'event', data: { id: 'ev_vb', title: 'Volleyball; practice', category: 'volleyball', people: ['luke'], date: '2026-09-15', start: '18:00', end: '19:30', location: 'Gym 2', bring: 'Knee pads', repeat: { freq: 'weekly', interval: 1, days: [2, 4], until: '2026-12-01' }, exdates: ['2026-10-13'], remind: '60' } },
+    { id: 'ev_trip', type: 'event', data: { id: 'ev_trip', title: 'Tournament', people: ['max'], date: '2026-10-12', endDate: '2026-10-13', allDay: true } },
+    { id: 'n_secret', type: 'need', data: { id: 'n_secret', text: 'Anniversary present', list: 'other' } },
+    { id: 'note_1', type: 'note', data: { id: 'note_1', text: 'private note' } },
+  ]);
+  const link = be.post({ action: 'feedLink', token, api: 'https://script.google.com/macros/s/ABC_def-123/exec' });
+  assert.ok(link.ok && /^[a-f0-9]{32}$/.test(link.key));
+  assert.equal(link.url, 'https://script.google.com/macros/s/ABC_def-123/exec?feed=' + link.key);
+  assert.equal(be.post({ action: 'feedLink', token: 'x'.repeat(64) }).error, 'auth');
+
+  const ics = be.get({ feed: link.key }).text.replace(/\r\n /g, '');
+  assert.match(ics, /BEGIN:VCALENDAR[\s\S]+END:VCALENDAR/);
+  assert.match(ics, /SUMMARY:Volleyball\\; practice/);
+  assert.match(ics, /DTSTART;TZID=America\/Toronto:20260915T180000/);
+  assert.match(ics, /RRULE:FREQ=WEEKLY;INTERVAL=1;WKST=SU;BYDAY=TU,TH;UNTIL=20261201T235959/);
+  assert.match(ics, /EXDATE;TZID=America\/Toronto:20261013T180000/);
+  assert.match(ics, /TRIGGER:-PT60M/);
+  assert.match(ics, /DTEND;VALUE=DATE:20261014/, 'all-day end date is exclusive again on the way out');
+  assert.ok(!/Anniversary present|private note/.test(ics), 'lists and notes never leave the app');
+
+  assert.match(be.get({ feed: link.key, who: 'luke' }).text, /Volleyball/);
+  assert.ok(!/Tournament/.test(be.get({ feed: link.key, who: 'luke' }).text), 'a personal feed only carries that person');
+  assert.equal(be.get({ feed: 'guessed-key' }).text, 'Not found');
+  const rotated = be.post({ action: 'feedLink', token, regenerate: true });
+  assert.ok(rotated.ok && /^[a-f0-9]{32}$/.test(rotated.key) && rotated.key !== link.key);
+  assert.equal(be.get({ feed: link.key }).text, 'Not found', 'the old link dies immediately');
+});
+
+test('week-ahead digest goes out on the chosen evening with driving and dinners', () => {
+  const be = makeBackend();
+  const token = be.post({ action: 'unlock', pin: '246810' }).token;
+  const people = [{ id: 'kevin', name: 'Kevin', notify: { email: 'kevin@example.com', follow: ['kevin', 'luke'], weekly: true, weeklyDay: 0, weeklyTime: '18:00' } }, { id: 'luke', name: 'Luke' }, { id: 'kate', name: 'Kate' }];
+  be.post({ action: 'sync', token, since: 0, ops: [
+    { opId: 'a', id: 'settings_family', type: 'settings', data: { id: 'settings_family', people, timezone: 'America/Toronto' } },
+    { opId: 'b', id: 'ev_s', type: 'event', data: { id: 'ev_s', title: 'Soccer game', people: ['luke'], date: '2026-09-19', start: '10:00', end: '11:00', location: 'Kinsmen', dropoff: 'kate', pickup: 'kevin' } },
+    { opId: 'c', id: 'mp_2026-09-15', type: 'mealplan', data: { id: 'mp_2026-09-15', date: '2026-09-15', recipeName: 'Honey Garlic Chicken' } },
+    { opId: 'd', id: 'n1', type: 'need', data: { id: 'n1', text: 'Milk', done: false } },
+  ] });
+  be.props.LAST_CHECK = String(at('2026-09-13', '17:56'));   // Sunday
+  const sent = be.run('checkReminders_', at('2026-09-13', '18:02'));
+  assert.deepEqual(sent.map(s => s.kind), ['weekly']);
+  const last = be.outbox.at(-1);
+  const body = last.body || last.message;
+  assert.match(body, /Saturday 09-19/);
+  assert.match(body, /10am Soccer game \(Luke\) @ Kinsmen — drop-off Kate, pick-up Kevin/);
+  assert.match(body, /🍽️ Honey Garlic Chicken/);
+  assert.match(body, /🚗 Driving: Kate ×1 · Kevin ×1/);
+  assert.match(body, /1 item on the lists/);
+  // not on other days, and not twice on the same evening
+  be.props.LAST_CHECK = String(at('2026-09-14', '17:56'));
+  assert.equal(be.run('checkReminders_', at('2026-09-14', '18:02')).length, 0);
+});
+
+test('weekly backup writes to Drive and keeps the last eight; cleanup drops only stale rows', () => {
+  const be = makeBackend();
+  const token = family(be, [{ id: 'ev_keep', type: 'event', data: { id: 'ev_keep', title: 'Keep me', date: '2026-09-20' } }]);
+  for (let i = 0; i < 10; i++) be.run('weeklyBackup');
+  const folder = be.folders['Family Hub Backups'];
+  assert.equal(folder.files.filter(f => !f.trashed).length, 8);
+  assert.match(folder.files.at(-1).content, /"title": "Keep me"/);
+  assert.ok(be.post({ action: 'backupNow', token }).ok);
+  assert.equal(be.post({ action: 'backupNow', token: 'x'.repeat(64) }).error, 'auth');
+
+  // a fresh checklist tick, an ancient one, and an old tombstone
+  const old = '2026-01-01', recent = '2026-09-11';
+  be.post({ action: 'sync', token, since: 0, ops: [
+    { opId: 'x', id: 'rl_ro_coffee_' + old, type: 'routineLog', data: { id: 'rl_ro_coffee_' + old, routineId: 'ro_coffee', date: old, done: true } },
+    { opId: 'y', id: 'rl_ro_coffee_' + recent, type: 'routineLog', data: { id: 'rl_ro_coffee_' + recent, routineId: 'ro_coffee', date: recent, done: true } },
+    { opId: 'z', id: 'ev_gone', type: 'event', data: { id: 'ev_gone', title: 'Deleted long ago', date: '2026-02-02' } },
+  ] });
+  be.post({ action: 'sync', token, since: 0, ops: [{ opId: 'z2', id: 'ev_gone', type: 'event', deleted: true }] });
+  be.sheets.Items.rows.forEach(r => { if (r[0] === 'ev_gone') r[3] = Date.now() - 90 * 86400000; }); // aged tombstone
+  const before = be.sheets.Items.rows.length;
+  const res = be.run('monthlyCleanup');
+  assert.equal(res.removed, 2, 'the ancient tick and the aged tombstone');
+  assert.equal(be.sheets.Items.rows.length, before - 2);
+  const left = be.post({ action: 'sync', token, since: 0, ops: [] }).items.map(i => i.id);
+  assert.ok(left.includes('ev_keep') && left.includes('rl_ro_coffee_' + recent));
+  assert.ok(!left.includes('ev_gone') && !left.includes('rl_ro_coffee_' + old));
+});
+
+test('setup installs one timer of each kind, even when run twice; test button needs the PIN token', () => {
   const be = makeBackend();
   const token = family(be);
   be.run('setup'); be.run('setup');
-  assert.equal(be.triggers.length, 1);
+  assert.deepEqual(be.triggers.map(t => t.getHandlerFunction()).sort(), ['checkReminders', 'monthlyCleanup', 'weeklyBackup']);
   assert.equal(be.post({ action: 'testNotify', token: 'x'.repeat(64), person: 'kevin' }).error, 'auth');
   const r = be.post({ action: 'testNotify', token, person: 'kevin' });
   assert.ok(r.ok && r.reminders);
