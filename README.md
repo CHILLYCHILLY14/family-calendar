@@ -42,6 +42,8 @@ A shared family calendar and dashboard for **Kevin, Kate, Luke and Max** — hos
 
 **Picky Eats** — 60 kid-friendly recipes across 🇨🇦 Canadian, 🇺🇸 American, 🇹🇭 Thai, 🇨🇳 Chinese, 🇯🇵 Japanese, 🇮🇹 Italian, 🇲🇽 Mexican, each with ingredients, steps, picky-eater tricks and a grown-up upgrade — including 🥗 healthy options and 📦 meal-prep batches. Every recipe carries storing & reheating notes: fridge life, freezer life, how to pack it, and how to reheat it properly. Daily feed that changes every day (🔄 for more), weekly dinner planner, Sunday prep-plan builder with one combined shopping list, per-kid 👍 likes, one-tap "add ingredients to groceries", your own recipes, and 🌍 Discover for endless fresh ideas from a free online library.
 
+**Sports Budget / Season Ledger** — team budgets, CAD expense tracking, paid/due/reimbursed status, payer and category breakdowns, editable notes, CSV import/export, and a round-trip fuel/hotel/food calculator. Open **Home → Sports Budget** or use the desktop sidebar. It shares Family Hub's existing PIN, Google Sheets sync, offline queue and backups; no second backend is needed. Travel estimates are added as **Due** until you mark them paid. The season label names the current books; export before starting another season.
+
 **Themes** — Light, Dark, Maple (warm), Aurora (northern lights), or Auto.
 
 **Works everywhere** — phone-first, desktop sidebar, installable to the home screen, offline-friendly, Wix-embed friendly.

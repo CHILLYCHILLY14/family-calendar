@@ -1,10 +1,10 @@
 {
   "name": "family-hub",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --check app.js && node --check store.js && node --check lib.js && node --check meals.js && node --check import.js && node --check sw.js && node tests.mjs && node test/regressions.mjs && node test/reminders.mjs && node test/import.mjs",
+    "test": "node --check app.js && node --check store.js && node --check lib.js && node --check meals.js && node --check import.js && node --check sw.js && node --check ledger/ledger.js && node --check ledger/data.js && node --check ledger/template.js && node tests.mjs && node test/regressions.mjs && node test/reminders.mjs && node test/import.mjs && node test/ledger.mjs",
     "serve": "python3 -m http.server 4173",
     "mock-server": "node test/mock-apps-script.mjs 4174",
     "build": "node scripts/build.mjs"

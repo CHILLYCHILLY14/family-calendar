@@ -6,6 +6,11 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 
 export function makeBackend({ pin = '246810' } = {}) {
+  let fakeNow = null;
+  class TestDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [fakeNow ?? Date.now()])); }
+    static now() { return fakeNow ?? Date.now(); }
+  }
   const sheets = {};
   const makeSheet = (name) => {
     const rows = []; // 1-based rows as arrays
@@ -27,6 +32,7 @@ export function makeBackend({ pin = '246810' } = {}) {
   const props = pin ? { FAMILY_PIN: pin } : {}; const cache = {};
   const outbox = []; const triggers = []; const folders = {};
   const ctx = {
+    Date: TestDate,
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: n => sheets[n] || null, insertSheet: n => makeSheet(n) }), flush() {} },
     PropertiesService: { getScriptProperties: () => ({ getProperty: k => props[k] ?? null, setProperty: (k, v) => { props[k] = v; }, deleteProperty: k => { delete props[k]; } }) },
     CacheService: { getScriptCache: () => ({ get: k => cache[k] ?? null, put: (k, v) => { cache[k] = v; }, remove: k => { delete cache[k]; } }) },
@@ -81,7 +87,14 @@ export function makeBackend({ pin = '246810' } = {}) {
       try { return JSON.parse(out.text); } catch { return { text: out.text }; }  // calendar feed / plain text
     },
     sheets, cache, props, outbox, triggers, folders,
-    run: (name, ...args) => JSON.parse(JSON.stringify(ctx[name](...args) ?? null)),
+    run: (name, ...args) => {
+      // Freeze nested Date.now() calls too, so timer tests do not depend on the
+      // real day the suite runs (for example, the weekly dinner digest).
+      const previous = fakeNow;
+      if (name === 'checkReminders_' && Number.isFinite(args[0])) fakeNow = args[0];
+      try { return JSON.parse(JSON.stringify(ctx[name](...args) ?? null)); }
+      finally { fakeNow = previous; }
+    },
   };
 }
 

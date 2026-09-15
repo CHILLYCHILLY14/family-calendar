@@ -86,7 +86,7 @@ jobs:
                   with urllib.request.urlopen(base + '?revision=' + expected, timeout=20) as response:
                       html = response.read().decode()
                   assert 'app.js?v=2' in html and 'Family Hub' in html, 'App entry point is missing'
-                  for asset in ['app.js', 'store.js', 'lib.js', 'styles.css', 'sw.js', 'manifest.webmanifest', 'assets/icons/icon-192.png']:
+                  for asset in ['app.js', 'store.js', 'lib.js', 'styles.css', 'sw.js', 'manifest.webmanifest', 'assets/icons/icon-192.png', 'ledger/ledger.js', 'ledger/data.js', 'ledger/template.js']:
                       with urllib.request.urlopen(base + asset, timeout=20) as response:
                           assert response.status == 200 and response.read(50), 'Missing asset: ' + asset
                   print('Verified live Family Hub revision:', expected)

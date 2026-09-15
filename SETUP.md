@@ -191,3 +191,15 @@ It then opens like a normal app, full screen, with its own icon.
 ## Updating an older backend
 
 Paste the updated `apps-script/Code.gs` into the existing Apps Script project, add your `FAMILY_PIN` Script property, and deploy a new version under the existing deployment. Keep the same Sheet and `/exec` URL. The updated app preserves existing device data and works with the original sync response format.
+
+## Sports Budget (Season Ledger)
+
+Open **Home → Sports Budget**, or **Sports Budget** in the desktop sidebar. The ledger uses the existing Family Hub connection and family PIN. No additional Google Sheet, Apps Script deployment or token is required. The original standalone ledger backend is not used.
+
+- **Teams:** edit the starter kids and teams, add payers, and set optional team budgets.
+- **Expenses:** enter dates, amounts in CAD, category, details, notes and who paid. Paid and Due count toward the season total; Reimbursed is shown separately.
+- **Travel:** enter your own fuel, hotel and food estimates. The calculator includes return driving. Adding a trip creates separate Due entries; change them to Paid after payment.
+- **CSV:** exports respect the current expense filters. Import adds rows after confirmation and does not replace your books. Importing the same file twice creates duplicates. Clear filters before exporting the full expense list.
+- **Sharing:** each row uses Family Hub's normal sync queue. Existing full JSON backups include all ledger records and team settings.
+
+The season label renames the current books; it does not create a separate historical season.

@@ -1,5 +1,6 @@
 // Family Hub — shared family calendar & dashboard
 import CONFIG from './config.js';
+import { mountLedger } from './ledger/ledger.js';
 import { store, ls, uid } from './store.js';
 import * as L from './lib.js';
 import { RECIPES, CUISINES, MEAL_TYPES, dailyPicks } from './meals.js';
@@ -266,7 +267,8 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', (
 /* =====================================================================
    Routing
    ===================================================================== */
-const PAGES = ['home', 'calendar', 'needs', 'meals', 'person', 'settings'];
+const PAGES = ['home', 'calendar', 'needs', 'meals', 'ledger', 'person', 'settings'];
+let ledgerView = null;
 function route() {
   const [page, arg] = (location.hash.replace(/^#\/?/, '') || 'home').split('/');
   let decoded = '';
@@ -330,6 +332,7 @@ function confirmBox(title, text, buttons) {
 let pinEntry = '';
 let pinMsg = '';
 function renderLock() {
+  ledgerView?.destroy(); ledgerView = null;
   const s = settings();
   document.body.classList.add('locked');
   app.innerHTML = `
@@ -394,6 +397,7 @@ const NAV = [
   { page: 'calendar', icon: '📅', label: 'Calendar' },
   { page: 'needs', icon: '🛒', label: 'Needs' },
   { page: 'meals', icon: '🍽️', label: 'Meals' },
+  { page: 'ledger', icon: '💵', label: 'Sports Budget' },
   { page: 'settings', icon: '⚙️', label: 'Settings' },
 ];
 function renderShell() {
@@ -474,16 +478,19 @@ function renderPage(resetScroll = false) {
   if (!main) return;
   const r = route();
   const top = resetScroll ? 0 : main.scrollTop;
-  const title = { home: '', calendar: 'Calendar', needs: 'Needs & Lists', meals: 'Picky Eats', settings: 'Settings', person: personById(r.arg)?.name || '' }[r.page];
+  const title = { home: '', calendar: 'Calendar', needs: 'Needs & Lists', meals: 'Picky Eats', ledger: 'Sports Budget', settings: 'Settings', person: personById(r.arg)?.name || '' }[r.page];
   $('#top-title').textContent = title;
   document.body.dataset.page = r.page;
-  const html = ({ home: viewHome, calendar: viewCalendar, needs: viewNeeds, meals: viewMeals, person: viewPerson, settings: viewSettings }[r.page] || viewHome)(r.arg);
+  ledgerView?.destroy(); ledgerView = null;
+  const html = r.page === 'ledger' ? '<div id="season-ledger" aria-label="Sports budget"></div>' : ({ home: viewHome, calendar: viewCalendar, needs: viewNeeds, meals: viewMeals, person: viewPerson, settings: viewSettings }[r.page] || viewHome)(r.arg);
   main.innerHTML = html;
+  if (r.page === 'ledger') ledgerView = mountLedger($('#season-ledger'), { hub: store, openSettings: () => go('settings') });
   main.scrollTop = top;
   if (r.page === 'calendar') afterCalendarRender(resetScroll);
 }
 // avoid clobbering what someone is typing when a remote update arrives
 function softRender() {
+  if (route().page === 'ledger' && ledgerView) { ledgerView.refresh(); return; }
   const a = document.activeElement;
   if (modalRoot.innerHTML || (a && a.closest && a.closest('#main') && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) { pendingRender = true; return; }
   renderPage();
@@ -624,6 +631,7 @@ function viewHome() {
         <button class="btn primary" data-act="new-event">＋ Event</button>
         <button class="btn" data-act="quick-need">＋ Need</button>
         <button class="btn" data-act="new-note">📝 Note</button>
+        <a class="btn" href="#ledger">💵 Sports Budget</a>
       </div>
     </div>
     ${w ? `<button class="hero-wx" data-act="weather-detail" title="${esc(s.location?.name || '')}"><span class="wx-ico">${w.icon}</span><span class="wx-t">${wk.now.t}°</span><span class="muted tiny">${esc(w.label)}${wd ? ` · H ${wd.hi}° L ${wd.lo}°` : ''}</span><span class="muted tiny">${esc(s.location?.name || '')}</span></button>` : ''}

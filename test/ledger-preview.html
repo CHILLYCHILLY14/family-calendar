@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Season Ledger test preview</title>
+<style>body{font-family:system-ui;margin:12px}iframe{width:100%;height:850px;border:0;display:block;margin-top:12px;max-width:100%}button{padding:8px;margin-right:8px}</style>
+<div id="controls"><p>Local test preview · synthetic data only</p><button id="desktop">Desktop width</button><button id="phone">Phone width</button><button id="dark">Dark theme</button><button id="reload">Reload test ledger</button></div><div id="host"></div>
+<script type="module">
+if(!location.search.includes('embedded')) {
+  const frame=document.createElement('iframe'); frame.title='Ledger preview';frame.src='./ledger-preview.html?embedded';document.querySelector('#host').append(frame);
+  document.querySelector('#desktop').onclick=()=>frame.style.width='100%';
+  document.querySelector('#phone').onclick=()=>frame.style.width='375px';
+  document.querySelector('#dark').onclick=()=>frame.contentDocument.documentElement.dataset.theme=frame.contentDocument.documentElement.dataset.theme==='dark'?'light':'dark';
+  document.querySelector('#reload').onclick=()=>frame.contentWindow.location.reload();
+} else {
+  document.querySelector('#controls').remove();document.body.style.margin='0';
+  const {mountLedger}=await import('../ledger/ledger.js');
+  const saved=JSON.parse(localStorage.getItem('fh.test.ledger')||'[]'), records=new Map(saved);
+  const listeners=new Set();
+  const hub={isUnlocked:true,isShared:false,storageError:false,status:'local',lastSync:0,pending:[],
+    get:id=>records.get(id)?.deleted?null:records.get(id)?.data||null,meta:id=>records.get(id)||null,
+    list:type=>[...records.values()].filter(r=>r.type===type&&!r.deleted).map(r=>r.data),
+    put(type,data){records.set(data.id,{type,data:structuredClone(data)});localStorage.setItem('fh.test.ledger',JSON.stringify([...records]));},
+    remove(id){const record=records.get(id);if(record){records.set(id,{...record,deleted:true});localStorage.setItem('fh.test.ledger',JSON.stringify([...records]));}},
+    on(fn){listeners.add(fn);return()=>listeners.delete(fn);},sync:()=>{},
+  };
+  mountLedger(document.querySelector('#host'),{hub,openSettings:()=>alert('Family Hub settings link works')});
+}
+</script></html>
